@@ -1,6 +1,7 @@
 {
   "name": "Finway Academy",
   "short_name": "Finway",
+  "id": "/",
   "description": "Finway Academy — o'quv markazi boshqaruv tizimi",
   "start_url": "/",
   "scope": "/",

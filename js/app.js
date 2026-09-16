@@ -178,9 +178,6 @@ function renderLogin() {
             <button type="button" data-role="oquvchi" class="col-span-2 flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-sm font-bold text-white shadow-lg shadow-blue-600/30 hover:from-blue-500 hover:to-indigo-500 transition">
               <span class="text-lg">🎓</span> Men o'quvchiman
             </button>
-            <button type="button" data-role="xodim" class="col-span-2 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-slate-200 text-xs font-semibold text-slate-500 hover:border-blue-300 hover:text-blue-600 transition">
-              🔑 Xodim (shaxsiy login/parol)
-            </button>
           </div>
           <form id="loginForm" class="space-y-4"><div id="authArea"></div></form>
         </div>

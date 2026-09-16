@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#2563eb">
+  <title>Finway Academy — O'quv markazi</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Finway">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .fade-in { animation: fadeIn .18s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
+    img.aemoji { height: 1.15em; width: 1.15em; margin: 0 .04em; vertical-align: -0.18em; display: inline-block; object-fit: contain; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+  <div id="app"></div>
+  <div id="modals"></div>
+  <div id="toasts" class="fixed top-4 right-4 z-[100] flex flex-col gap-2"></div>
+  <script type="module" src="./js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+    }
+  </script>
+  <!-- Apple (iPhone) uslubidagi emojilar: matndagi emojilarni Apple-emoji rasmiga almashtiradi.
+       Xato bo'lsa asl emojiga qaytadi. Hech qaysi modulni o'zgartirmaydi. -->
+  <script>
+  (function () {
+    var RE = /\p{Extended_Pictographic}(\u200D\p{Extended_Pictographic}|[\u{1F3FB}-\u{1F3FF}\uFE0F])*|[\u{1F1E6}-\u{1F1FF}]{2}/gu;
+    var SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, INPUT: 1, IMG: 1, SELECT: 1, OPTION: 1 };
+    function skip(node) {
+      for (var p = node.parentNode; p; p = p.parentNode) {
+        if (p.nodeType === 1 && (SKIP[p.tagName] || p.classList.contains('aemoji'))) return true;
+      }
+      return false;
+    }
+    function toImg(ch) {
+      var img = document.createElement('img');
+      img.className = 'aemoji';
+      img.alt = ch; img.draggable = false; img.loading = 'lazy';
+      img.src = 'https://emojicdn.elk.sh/' + encodeURIComponent(ch) + '?style=apple';
+      img.onerror = function () { this.replaceWith(document.createTextNode(this.alt)); };
+      return img;
+    }
+    function processText(node) {
+      var s = node.nodeValue;
+      RE.lastIndex = 0;
+      if (!RE.test(s)) return;
+      RE.lastIndex = 0;
+      var frag = document.createDocumentFragment(), last = 0, m;
+      while ((m = RE.exec(s))) {
+        if (m.index > last) frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+        frag.appendChild(toImg(m[0]));
+        last = RE.lastIndex;
+      }
+      if (last < s.length) frag.appendChild(document.createTextNode(s.slice(last)));
+      if (node.parentNode) node.parentNode.replaceChild(frag, node);
+    }
+    function walk(root) {
+      if (root.nodeType === 3) { if (!skip(root)) processText(root); return; }
+      if (root.nodeType !== 1 || SKIP[root.tagName]) return;
+      var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), list = [], n;
+      while ((n = w.nextNode())) list.push(n);
+      for (var i = 0; i < list.length; i++) if (!skip(list[i])) processText(list[i]);
+    }
+    function start() {
+      try {
+        walk(document.body);
+        new MutationObserver(function (muts) {
+          for (var i = 0; i < muts.length; i++) {
+            var a = muts[i].addedNodes;
+            for (var j = 0; j < a.length; j++) walk(a[j]);
+          }
+        }).observe(document.body, { childList: true, subtree: true });
+      } catch (e) { }
+      // Boshlang'ich render sessiya tekshiruvidan keyin kech kelishi mumkin — bir necha marta qayta yuramiz
+      setTimeout(function () { walk(document.body); }, 400);
+      setTimeout(function () { walk(document.body); }, 1200);
+      setTimeout(function () { walk(document.body); }, 3200);
+    }
+    start();
+  })();
+  </script>
+</body>
+</html>

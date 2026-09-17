@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "uz.finway.academy",
+    "sha256_cert_fingerprints": ["8F:80:52:51:2B:73:50:6D:4A:F8:0C:C3:D8:A5:CB:EA:65:F7:2E:69:42:4D:8B:04:94:8D:78:18:D3:43:5E:9D"]
+  }
+}]

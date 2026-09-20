@@ -349,7 +349,7 @@ function renderLogin() {
 function renderLayout() {
   $('#app').innerHTML = `
     <div class="flex min-h-screen">
-      <aside class="w-60 bg-white border-r border-slate-200 fixed inset-y-0 left-0 z-40 flex flex-col max-lg:-translate-x-full transition-transform" id="sidebar">
+      <aside class="w-60 bg-white border-r border-slate-200 fixed inset-y-0 left-0 z-50 flex flex-col -translate-x-full lg:translate-x-0 transition-transform" id="sidebar">
         <div class="px-5 py-5 flex items-center gap-3 border-b border-slate-100">
           <div class="w-10 h-10 rounded-xl overflow-hidden shrink-0 shadow-sm shadow-blue-600/20 bg-blue-600 flex items-center justify-center">
             <img src="/icons/icon-192.png" class="w-full h-full object-cover" onerror="this.replaceWith(document.createTextNode('💎'))">
@@ -371,6 +371,7 @@ function renderLayout() {
           <button id="logoutBtn" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-500 hover:bg-slate-50 hover:text-rose-600 transition">↩ Chiqish</button>
         </div>
       </aside>
+      <div id="sbBackdrop" class="fixed inset-0 bg-slate-900/40 z-40 hidden lg:hidden"></div>
       <div class="flex-1 lg:ml-60 flex flex-col min-w-0">
         <header class="bg-white/90 backdrop-blur border-b border-slate-200 px-4 lg:px-8 py-3.5 flex items-center justify-between sticky top-0 z-30">
           <div class="flex items-center gap-3">
@@ -406,7 +407,11 @@ function renderLayout() {
 
   $('#profileBtn').onclick = openProfile;
   $('#logoutBtn').onclick = async () => { await sb.auth.signOut(); location.hash = ''; renderLogin(); };
-  $('#menuBtn').onclick = () => $('#sidebar').classList.toggle('-translate-x-full');
+  const _sb = $('#sidebar'), _bd = $('#sbBackdrop');
+  const openSb = () => { _sb.classList.remove('-translate-x-full'); _bd.classList.remove('hidden'); };
+  const closeSb = () => { _sb.classList.add('-translate-x-full'); _bd.classList.add('hidden'); };
+  $('#menuBtn').onclick = () => (_sb.classList.contains('-translate-x-full') ? openSb() : closeSb());
+  _bd.onclick = closeSb;
 
   // Tez qo'shish menyusi — istalgan sahifadan ma'lumot kiritish
   const QUICK = [
@@ -461,7 +466,8 @@ async function route() {
     a.className = `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium mb-0.5 ${active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`;
   });
   $('#pageTitle').textContent = page.title;
-  $('#sidebar').classList.add('max-lg:-translate-x-full');
+  $('#sidebar').classList.add('-translate-x-full');
+  const _bd = $('#sbBackdrop'); if (_bd) _bd.classList.add('hidden');
   const container = $('#page');
   container.innerHTML = '<div class="text-slate-400 text-sm py-10 text-center">Yuklanmoqda...</div>';
   try {

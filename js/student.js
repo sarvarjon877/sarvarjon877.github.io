@@ -1,7 +1,7 @@
 // O'quvchi portali (DARK dizayn) — guruh, davomat, dars mavzulari, o'yin (coin),
 // guruh chati va o'qituvchiga shaxsiy savol. Telefon uchun moslashtirilgan.
 import { sb, run } from './db.js';
-import { $, $$, esc, fmtDate, fmtDays, fmtTime, toast, today, formModal, modal } from './ui.js';
+import { $, $$, esc, fmtDate, fmtDays, fmtTime, toast, today, formModal, modal, confirmDialog } from './ui.js';
 import { mountChat, closeChat } from './chat.js';
 import { renderGame } from './game.js';
 
@@ -14,12 +14,22 @@ const ATT = {
 const TABS = [
   { id: 'home', label: 'Bosh', icon: '🏠' },
   { id: 'library', label: 'Darslik', icon: '📚' },
-  { id: 'tasks', label: 'Vazifa', icon: '📝' },
   { id: 'game', label: "O'yin", icon: '🎮' },
   { id: 'attend', label: 'Davomat', icon: '📋' },
   { id: 'chat', label: 'Chat', icon: '💬' },
-  { id: 'ask', label: 'Savol', icon: '❓' },
   { id: 'profile', label: 'Profil', icon: '👤' },
+];
+
+// Darslik ichki bo'limlari
+const LIB_SUBS = [
+  { id: 'darslar', label: 'Darslar', icon: '🎬' },
+  { id: 'sinf', label: 'Sinf ishi', icon: '📝' },
+  { id: 'uy', label: 'Uy ishi', icon: '📋' },
+];
+// Chat ichki bo'limlari
+const CHAT_SUBS = [
+  { id: 'group', label: 'Guruh chati', icon: '💬' },
+  { id: 'private', label: "O'qituvchiga savol", icon: '❓' },
 ];
 
 let S = { student: null, groups: [], groupId: null, tab: 'home', centerName: "O'quv markazi", coins: 0, photo: null };
@@ -52,7 +62,7 @@ function miniRing(pct, label, color) {
 }
 
 export async function renderStudentApp(student, centerName) {
-  S = { student, groups: [], groupId: null, tab: 'home', centerName: centerName || "O'quv markazi", coins: 0 };
+  S = { student, groups: [], groupId: null, tab: 'home', centerName: centerName || "O'quv markazi", coins: 0, libSub: 'darslar', chatSub: 'group' };
   S.me = { role: 'student', id: S.student.id, name: `${S.student.first_name} ${S.student.last_name || ''}`.trim() };
 
   const [memberships, coinRow] = await Promise.all([
@@ -92,15 +102,20 @@ export async function renderStudentApp(student, centerName) {
       </nav>
     </div>`;
 
-  $('#sLogout').onclick = async () => {
-    closeChat();
-    localStorage.removeItem('finway_student');
-    await sb.auth.signOut();
-    location.reload();
-  };
+  $('#sLogout').onclick = doLogout;
   $$('[data-tab]').forEach((b) => b.onclick = () => { S.tab = b.dataset.tab; drawTab(); });
 
   drawTab();
+}
+
+// Chiqishdan oldin tasdiqlash so'raydi
+async function doLogout() {
+  const ok = await confirmDialog('Hisobdan chiqmoqchimisiz?');
+  if (!ok) return;
+  closeChat();
+  localStorage.removeItem('finway_student');
+  await sb.auth.signOut();
+  location.reload();
 }
 
 export function setCoins(coins) {
@@ -134,10 +149,8 @@ async function drawTab() {
 
   if (S.tab === 'home') return drawHome(main);
   if (S.tab === 'library') return drawLibrary(main);
-  if (S.tab === 'tasks') return drawTasks(main);
   if (S.tab === 'attend') return drawAttend(main);
   if (S.tab === 'chat') return drawChat(main);
-  if (S.tab === 'ask') return drawAsk(main);
 }
 
 const card = (inner, cls = '') => `<div class="rounded-2xl border border-white/10 bg-white/[0.03] shadow-lg shadow-black/20 p-4 ${cls}">${inner}</div>`;
@@ -212,8 +225,8 @@ async function drawHome(main) {
       </div>
       <div class="grid grid-cols-4 gap-1">
         ${miniRing(attPct, 'Davomat', attPct >= 80 ? '#34d399' : '#fbbf24')}
-        ${miniRing(testAvg, 'Testlar', '#60a5fa')}
-        ${miniRing(hwPct, 'Vazifa', '#a78bfa')}
+        ${miniRing(testAvg, 'Sinf ishi', '#60a5fa')}
+        ${miniRing(hwPct, 'Uy ishi', '#a78bfa')}
         ${miniRing(jobPct, 'Ishga', '#f59e0b')}
       </div>
     `)}</div>
@@ -360,12 +373,7 @@ async function drawProfile(main) {
     S.me.name = `${v.first_name} ${v.last_name || ''}`.trim();
     toast('Saqlandi'); drawProfile(main);
   };
-  $('#pLogout', main).onclick = async () => {
-    closeChat();
-    localStorage.removeItem('finway_student');
-    await sb.auth.signOut();
-    location.reload();
-  };
+  $('#pLogout', main).onclick = doLogout;
 }
 
 // --- Darslik (video darslar kutubxonasi) ---
@@ -398,14 +406,25 @@ function openPdfViewer(url, name) {
 }
 
 async function drawLibrary(main) {
+  main.innerHTML = `
+    ${groupSwitcher()}
+    <div class="flex gap-1 mb-3 p-1 rounded-2xl bg-white/[0.04] border border-white/10">
+      ${LIB_SUBS.map((s) => `<button data-libsub="${s.id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition ${S.libSub === s.id ? 'bg-indigo-500/30 text-white shadow' : 'text-slate-400'}"><span class="mr-0.5">${s.icon}</span>${s.label}</button>`).join('')}
+    </div>
+    <div id="libBody"><div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div></div>`;
+  bindSwitcher();
+  $$('[data-libsub]', main).forEach((b) => b.onclick = () => { S.libSub = b.dataset.libsub; drawLibrary(main); });
+  const body = $('#libBody', main);
+  if (S.libSub === 'sinf') return libSinf(body, main);
+  if (S.libSub === 'uy') return libUy(body);
+  return libDarslar(body, main);
+}
+
+// Darslik → Darslar (video darslar kutubxonasi)
+async function libDarslar(body, main) {
   const g = S.groups.find((x) => x.id === S.groupId);
   const courseId = g?.course_id;
-  main.innerHTML = '<div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div>';
-  if (!courseId) {
-    main.innerHTML = `${groupSwitcher()}${card('<div class="text-center py-8 text-slate-500 text-sm">Bu guruhga kurs biriktirilmagan.</div>')}`;
-    bindSwitcher();
-    return;
-  }
+  if (!courseId) { body.innerHTML = card('<div class="text-center py-8 text-slate-500 text-sm">Bu guruhga kurs biriktirilmagan.</div>'); return; }
   const modules = await run(sb.from('course_modules').select('*').eq('course_id', courseId).order('sort_order').order('created_at'));
   const modIds = modules.map((m) => m.id);
   const lessons = modIds.length
@@ -426,54 +445,41 @@ async function drawLibrary(main) {
     if (pdfBtn) pdfBtn.onclick = () => openPdfViewer(l.pdf_url, l.pdf_name);
   };
 
-  main.innerHTML = `
-    ${groupSwitcher()}
-    <div class="mb-3 px-1 text-sm font-bold text-slate-300">📚 ${esc(g.courses?.name || 'Kurs')} — darsliklar</div>
-    ${modules.length === 0
-      ? card('<div class="text-center py-8 text-slate-500 text-sm">Bu kurs uchun darslar hali qo\'shilmagan.</div>')
-      : `<div class="space-y-3">${modules.map((mod) => {
-          const ls = lessons.filter((l) => l.module_id === mod.id);
-          return card(`
-            <div class="font-bold text-slate-100 mb-0.5">${esc(mod.title)}</div>
-            ${mod.description ? `<div class="text-xs text-slate-500 mb-2">${esc(mod.description)}</div>` : '<div class="mb-2"></div>'}
-            ${ls.length === 0 ? '<div class="text-xs text-slate-600">Dars yo\'q</div>' : `<div class="space-y-1.5">
-              ${ls.map((l) => `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-800 transition">
-                <span class="text-lg shrink-0">${l.video_url ? '🎬' : '📄'}</span>
-                <span class="min-w-0 flex-1">
-                  <span class="block text-sm font-semibold text-slate-100 truncate">${esc(l.title)}</span>
-                  ${l.duration_min ? `<span class="block text-[11px] text-slate-500">⏱ ${esc(libDur(l.duration_min))}</span>` : ''}
-                </span>
-                <span class="text-slate-500 shrink-0">›</span>
-              </button>`).join('')}
-            </div>`}
-          `);
-        }).join('')}</div>`}`;
-  bindSwitcher();
-  $$('[data-lesson]', main).forEach((b) => b.onclick = () => {
+  body.innerHTML = modules.length === 0
+    ? card('<div class="text-center py-8 text-slate-500 text-sm">Bu kurs uchun darslar hali qo\'shilmagan.</div>')
+    : `<div class="space-y-3">${modules.map((mod) => {
+        const ls = lessons.filter((l) => l.module_id === mod.id);
+        return card(`
+          <div class="font-bold text-slate-100 mb-0.5">${esc(mod.title)}</div>
+          ${mod.description ? `<div class="text-xs text-slate-500 mb-2">${esc(mod.description)}</div>` : '<div class="mb-2"></div>'}
+          ${ls.length === 0 ? '<div class="text-xs text-slate-600">Dars yo\'q</div>' : `<div class="space-y-1.5">
+            ${ls.map((l) => `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-800 transition">
+              <span class="text-lg shrink-0">${l.video_url ? '🎬' : '📄'}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold text-slate-100 truncate">${esc(l.title)}</span>
+                ${l.duration_min ? `<span class="block text-[11px] text-slate-500">⏱ ${esc(libDur(l.duration_min))}</span>` : ''}
+              </span>
+              <span class="text-slate-500 shrink-0">›</span>
+            </button>`).join('')}
+          </div>`}
+        `);
+      }).join('')}</div>`;
+  $$('[data-lesson]', body).forEach((b) => b.onclick = () => {
     const l = lessons.find((x) => x.id === b.dataset.lesson);
     if (l) openLesson(l);
   });
 }
 
-const shuffleArr = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
-
-async function drawTasks(main) {
-  main.innerHTML = '<div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div>';
-  const [tests, myResults, hw, mySubs] = await Promise.all([
+// Darslik → Sinf ishi (testlar)
+async function libSinf(body, main) {
+  const [tests, myResults] = await Promise.all([
     run(sb.from('tests').select('*').eq('group_id', S.groupId).eq('active', true).order('created_at', { ascending: false })),
     run(sb.from('test_results').select('*').eq('student_id', S.student.id)),
-    run(sb.from('homework').select('*').eq('group_id', S.groupId).order('created_at', { ascending: false })),
-    run(sb.from('homework_submissions').select('*').eq('student_id', S.student.id)),
   ]);
   const resOf = (tid) => myResults.find((r) => r.test_id === tid);
-  const subOf = (hid) => mySubs.find((s) => s.homework_id === hid);
-
-  main.innerHTML = `
-    ${groupSwitcher()}
-    <div class="mb-4">
-      <div class="text-sm font-bold text-slate-300 mb-2 px-1">📝 Testlar</div>
-      ${tests.length === 0 ? card('<div class="text-slate-500 text-sm text-center py-4">Hozircha test yo\'q</div>') : `
-      <div class="space-y-2">
+  body.innerHTML = tests.length === 0
+    ? card('<div class="text-slate-500 text-sm text-center py-6">Hozircha sinf ishi (test) yo\'q</div>')
+    : `<div class="space-y-2">
         ${tests.map((t) => {
           const r = resOf(t.id);
           const pct = r && r.total ? Math.round((r.correct / r.total) * 100) : 0;
@@ -485,12 +491,23 @@ async function drawTasks(main) {
               : `<button data-test="${t.id}" class="shrink-0 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold">▶ Boshlash</button>`}
           </div>`);
         }).join('')}
-      </div>`}
-    </div>
-    <div>
-      <div class="text-sm font-bold text-slate-300 mb-2 px-1">📋 Uy vazifalari</div>
-      ${hw.length === 0 ? card('<div class="text-slate-500 text-sm text-center py-4">Hozircha vazifa yo\'q</div>') : `
-      <div class="space-y-2">
+      </div>`;
+  $$('[data-test]', body).forEach((b) => b.onclick = () => {
+    const t = tests.find((x) => x.id === b.dataset.test);
+    runTest(t, main);
+  });
+}
+
+// Darslik → Uy ishi (uy vazifalari)
+async function libUy(body) {
+  const [hw, mySubs] = await Promise.all([
+    run(sb.from('homework').select('*').eq('group_id', S.groupId).order('created_at', { ascending: false })),
+    run(sb.from('homework_submissions').select('*').eq('student_id', S.student.id)),
+  ]);
+  const subOf = (hid) => mySubs.find((s) => s.homework_id === hid);
+  body.innerHTML = hw.length === 0
+    ? card('<div class="text-slate-500 text-sm text-center py-6">Hozircha uy ishi yo\'q</div>')
+    : `<div class="space-y-2">
         ${hw.map((h) => {
           const s = subOf(h.id);
           return card(`
@@ -511,23 +528,18 @@ async function drawTasks(main) {
               </div>`}
           `);
         }).join('')}
-      </div>`}
-    </div>`;
-  bindSwitcher();
-
-  $$('[data-test]', main).forEach((b) => b.onclick = () => {
-    const t = tests.find((x) => x.id === b.dataset.test);
-    runTest(t, main);
-  });
-  $$('[data-hwsub]', main).forEach((b) => b.onclick = async () => {
+      </div>`;
+  $$('[data-hwsub]', body).forEach((b) => b.onclick = async () => {
     const hid = b.dataset.hwsub;
-    const ans = $(`[data-hwans="${hid}"]`, main)?.value.trim();
+    const ans = $(`[data-hwans="${hid}"]`, body)?.value.trim();
     if (!ans) return toast('Javob bo\'sh', 'error');
     b.disabled = true; b.textContent = 'Yuborilmoqda...';
     await run(sb.from('homework_submissions').upsert({ homework_id: hid, student_id: S.student.id, answer: ans, grade: null, graded_at: null }, { onConflict: 'homework_id,student_id' }));
-    toast('Topshirildi ✅'); drawTasks(main);
+    toast('Topshirildi ✅'); drawTab();
   });
 }
+
+const shuffleArr = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
 
 function runTest(test, main) {
   const picks = (test.questions || []).map((q) => {
@@ -576,9 +588,9 @@ function runTest(test, main) {
         <div class="text-6xl mb-3">${pct >= 60 ? '🎉' : '💪'}</div>
         <div class="text-2xl font-black text-slate-100 mb-1">Test yakunlandi!</div>
         <div class="text-4xl font-black ${pct >= 60 ? 'text-emerald-400' : 'text-rose-400'} my-4">${correct}/${total} · ${pct}%</div>
-        <button id="back" class="mt-4 px-6 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-bold">← Vazifalar</button>
+        <button id="back" class="mt-4 px-6 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-bold">← Sinf ishi</button>
       </div>`;
-    $('#back', main).onclick = () => drawTasks(main);
+    $('#back', main).onclick = () => drawLibrary(main);
   }
   paint();
 }
@@ -626,27 +638,21 @@ function stat(label, val, cls) {
 }
 
 async function drawChat(main) {
-  const g = S.groups.find((x) => x.id === S.groupId);
+  closeChat();
   main.innerHTML = `
     ${groupSwitcher()}
-    <div class="mb-2 text-sm font-semibold text-slate-400 px-1">💬 ${esc(g.name)} — guruh chati</div>
-    <div id="chatBox" style="height: calc(100vh - 220px)"></div>`;
-  bindSwitcher();
-  await mountChat($('#chatBox', main), { groupId: S.groupId, channel: 'group', me: S.me, dark: true });
-}
-
-async function drawAsk(main) {
-  const g = S.groups.find((x) => x.id === S.groupId);
-  main.innerHTML = `
-    ${groupSwitcher()}
-    <div class="mb-2 px-1">
-      <div class="text-sm font-semibold text-slate-400">❓ O'qituvchiga shaxsiy savol</div>
-      <div class="text-xs text-slate-500">Faqat siz va o'qituvchi (hamda direktor) ko'radi</div>
+    <div class="flex gap-1 mb-3 p-1 rounded-2xl bg-white/[0.04] border border-white/10">
+      ${CHAT_SUBS.map((s) => `<button data-chatsub="${s.id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition ${S.chatSub === s.id ? 'bg-indigo-500/30 text-white shadow' : 'text-slate-400'}"><span class="mr-0.5">${s.icon}</span>${s.label}</button>`).join('')}
     </div>
-    <div id="askBox" style="height: calc(100vh - 230px)"></div>`;
+    <div id="chatWrap"></div>`;
   bindSwitcher();
-  await mountChat($('#askBox', main), {
-    groupId: S.groupId, channel: 'private', studentId: S.student.id, me: S.me, dark: true,
-    placeholder: 'Savolingizni yozing...',
-  });
+  $$('[data-chatsub]', main).forEach((b) => b.onclick = () => { S.chatSub = b.dataset.chatsub; drawChat(main); });
+  const wrap = $('#chatWrap', main);
+  if (S.chatSub === 'private') {
+    wrap.innerHTML = `<div class="mb-2 text-xs text-slate-500 px-1">Faqat siz va o'qituvchi (hamda direktor) ko'radi</div><div id="askBox" style="height: calc(100vh - 265px)"></div>`;
+    await mountChat($('#askBox', wrap), { groupId: S.groupId, channel: 'private', studentId: S.student.id, me: S.me, dark: true, placeholder: 'Savolingizni yozing...' });
+  } else {
+    wrap.innerHTML = `<div id="chatBox" style="height: calc(100vh - 250px)"></div>`;
+    await mountChat($('#chatBox', wrap), { groupId: S.groupId, channel: 'group', me: S.me, dark: true });
+  }
 }

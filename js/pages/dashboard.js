@@ -1,5 +1,5 @@
 import { sb, run } from '../db.js';
-import { $, $$, esc, statCard, fmtTime, fmtMoney, DAYS, emptyState } from '../ui.js';
+import { $, $$, esc, statCard, fmtTime, fmtMoney, fmtDate, DAYS, emptyState } from '../ui.js';
 import { currentUser } from '../app.js';
 
 export async function render(container) {
@@ -8,7 +8,7 @@ export async function render(container) {
   const showDebt = ['direktor', 'moliyachi', 'admin'].includes(role); // qarzdorlar soni
   const showStats = role !== 'oqituvchi';
   const [students, leads, groups, balances, payments, risks, memberships] = await Promise.all([
-    run(sb.from('students').select('id,first_name,last_name,status')),
+    run(sb.from('students').select('id,first_name,last_name,status,due_date')),
     run(sb.from('leads').select('id,status')),
     run(sb.from('groups').select('*, courses(name), employees(first_name,last_name), rooms(name)').eq('status', 'aktiv')),
     run(sb.from('student_balances').select('*')),
@@ -77,7 +77,33 @@ export async function render(container) {
       )).join('')}
     </div>`;
 
-  const signals = (showDebt || showStats) ? `<div class="grid gap-4 md:grid-cols-2 mb-6">${debtCard}${riskCard}</div>` : '';
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const in3Str = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const withDue = students.filter((s) => s.status !== 'arxiv' && s.due_date);
+  const overdue = withDue.filter((s) => s.due_date < todayStr).sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const dueSoon = withDue.filter((s) => s.due_date >= todayStr && s.due_date <= in3Str).sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const dueName = (s) => `${s.first_name || ''} ${s.last_name || ''}`.trim();
+
+  const dueCard = !showDebt ? '' : `
+    <div class="bg-white rounded-xl border border-slate-200/80 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold flex items-center gap-2">📅 To'lov kuni</h3>
+        <a href="#/finance" class="text-xs font-semibold text-blue-600 hover:underline">Moliya →</a>
+      </div>
+      <div class="flex gap-6 mb-3">
+        <div><div class="text-2xl font-extrabold text-rose-600 leading-none">${overdue.length}</div><div class="text-xs text-slate-500 mt-1">kechikkan</div></div>
+        <div><div class="text-2xl font-extrabold text-amber-600 leading-none">${dueSoon.length}</div><div class="text-xs text-slate-500 mt-1">3 kun ichida</div></div>
+      </div>
+      ${[...overdue, ...dueSoon].length === 0
+        ? `<div class="text-xs text-slate-400 py-2">To'lov kuni belgilangan o'quvchi yo'q. Kartada "Keyingi to'lov kuni"ni qo'ying.</div>`
+        : [...overdue, ...dueSoon].slice(0, 6).map((s) => row(
+            `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(dueName(s))}</div>${sub(groupOf[s.id] || '—')}</div>`,
+            `<div class="text-sm font-bold shrink-0 ${s.due_date < todayStr ? 'text-rose-600' : 'text-amber-600'}">${fmtDate(s.due_date)}</div>`
+          )).join('')}
+    </div>`;
+
+  const signals = (showDebt || showStats) ? `<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">${debtCard}${riskCard}${dueCard}</div>` : '';
 
   const todayDow = ((new Date().getDay() + 6) % 7) + 1; // 1=Du ... 7=Yak
   const hour = new Date().getHours();

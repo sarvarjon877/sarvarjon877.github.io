@@ -31,7 +31,8 @@ const studentFields = (initial = {}, groupOptions = []) => [
   { name: 'gender', label: 'Jinsi', type: 'select', placeholder: 'Tanlang', options: [{ value: 'erkak', label: 'Erkak' }, { value: 'ayol', label: 'Ayol' }], value: initial.gender },
   { name: 'birth_date', label: "Tug'ilgan sana", type: 'date', value: initial.birth_date },
   { name: 'status', label: 'Holati', type: 'select', options: Object.entries(STATUS_LABELS).map(([v, [l]]) => ({ value: v, label: l })), value: initial.status || 'yangi' },
-  ...(showMoney() ? [{ name: 'deal_amount', label: 'Kelishuv summasi (umumiy)', type: 'money', value: initial.deal_amount ?? 0 }] : []),
+  ...(showMoney() ? [{ name: 'deal_amount', label: 'Kelishuv summasi (umumiy)', type: 'money', value: initial.deal_amount ?? 0 },
+    { name: 'due_date', label: "Keyingi to'lov kuni", type: 'date', value: initial.due_date }] : []),
   { name: 'group_id', label: "Qaysi guruhga qo'shiladi", type: 'select', placeholder: 'Tanlang (ixtiyoriy)', options: groupOptions },
   { name: 'note', label: 'Izoh', type: 'textarea', full: true, value: initial.note },
 ];

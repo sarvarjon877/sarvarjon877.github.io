@@ -14,6 +14,7 @@ export const STATUS_LABELS = {
   yangi: ['Yangi', 'bg-blue-50 text-blue-700'],
   aktiv: ['Aktiv', 'bg-emerald-50 text-emerald-700'],
   muzlatilgan: ['Muzlatilgan', 'bg-slate-100 text-slate-600'],
+  bitirgan: ['Bitirgan', 'bg-violet-50 text-violet-700'],
   arxiv: ['Arxiv', 'bg-slate-100 text-slate-500'],
 };
 
@@ -203,7 +204,7 @@ export async function openProfile(studentId, pageContainer) {
         ${canPay() ? `<button id="dealBtn" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium mt-1">✏️ Kelishuv summasini o'zgartirish</button>` : ''}
         ` : ''}
         ${canEdit() ? `<div class="flex flex-wrap gap-1.5 pt-1">
-          ${['aktiv', 'muzlatilgan', 'arxiv'].filter((x) => x !== s.status).map((x) => `<button data-st="${x}" class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium">${STATUS_LABELS[x][0]}ga o'tkazish</button>`).join('')}
+          ${['aktiv', 'muzlatilgan', 'bitirgan', 'arxiv'].filter((x) => x !== s.status).map((x) => `<button data-st="${x}" class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium">${STATUS_LABELS[x][0]}ga o'tkazish</button>`).join('')}
         </div>` : ''}
         <div class="pt-2">
           <div class="font-bold mb-1.5">Guruhlari</div>

@@ -103,6 +103,7 @@ export async function render(container) {
       ${statCard("Yangi o'quvchilar", byStatus('yangi'), 'blue', '✨', '#/students')}
       ${statCard("Aktiv o'quvchilar", byStatus('aktiv'), 'green', '🎓', '#/students')}
       ${showDebt ? statCard('Qarzdorlar', debtors, 'red', '💸', '#/finance') : ''}
+      ${statCard('Bitirganlar', byStatus('bitirgan'), 'purple', '🎓', '#/students')}
       ${statCard('Muzlatilgan', byStatus('muzlatilgan'), 'slate', '❄️', '#/students')}
       ${statCard('Arxiv', byStatus('arxiv'), 'slate', '📦', '#/students')}
       ${statCard('Aktiv guruhlar', groups.length, 'orange', '👥', '#/groups')}

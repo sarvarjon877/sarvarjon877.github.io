@@ -157,7 +157,7 @@ export async function render(container) {
 }
 
 export async function openProfile(studentId, pageContainer) {
-  const [s, bal, memberships, payments, charges, groups, tgSettings] = await Promise.all([
+  const [s, bal, memberships, payments, charges, groups, tgSettings, att] = await Promise.all([
     run(sb.from('students').select('*').eq('id', studentId).single()),
     run(sb.from('student_balances').select('*').eq('student_id', studentId).single()),
     run(sb.from('group_students').select('*, groups(id,name,price)').eq('student_id', studentId).eq('status', 'aktiv')),
@@ -165,6 +165,7 @@ export async function openProfile(studentId, pageContainer) {
     run(sb.from('charges').select('*').eq('student_id', studentId).order('charged_at', { ascending: false }).limit(20)),
     run(sb.from('groups').select('id,name').eq('status', 'aktiv').order('name')),
     run(sb.from('settings').select('telegram_bot').single()),
+    run(sb.from('student_attendance_risk').select('*').eq('student_id', studentId).maybeSingle()),
   ]);
   const tgBot = tgSettings?.telegram_bot || '';
   const deal = Number(bal?.deal_amount || 0);
@@ -203,6 +204,21 @@ export async function openProfile(studentId, pageContainer) {
         </div>
         ${canPay() ? `<button id="dealBtn" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium mt-1">✏️ Kelishuv summasini o'zgartirish</button>` : ''}
         ` : ''}
+        ${att && att.jami ? `
+        <div class="rounded-xl border ${att.ketma_ket_kelmagan >= 2 ? 'border-rose-200 bg-rose-50/40' : 'border-slate-100'} p-3 mt-1">
+          <div class="flex items-center justify-between">
+            <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Davomat</div>
+            <div class="text-xs text-slate-400">${att.keldi}/${att.jami} dars</div>
+          </div>
+          <div class="flex items-end gap-2 mt-0.5">
+            <div class="text-xl font-extrabold ${att.foiz < 75 ? 'text-amber-600' : 'text-emerald-600'} leading-none">${att.foiz}%</div>
+            ${att.ketma_ket_kelmagan >= 2 ? `<div class="text-xs font-bold text-rose-600">⚠️ ${att.ketma_ket_kelmagan} dars ketma-ket yo'q</div>` : ''}
+          </div>
+          <div class="w-full h-1.5 rounded-full bg-slate-100 mt-2 overflow-hidden">
+            <div class="h-full rounded-full ${att.foiz < 75 ? 'bg-amber-400' : 'bg-emerald-400'}" style="width:${Math.max(0, Math.min(100, att.foiz))}%"></div>
+          </div>
+          <div class="text-[11px] text-slate-400 mt-1.5">Oxirgi dars: ${att.oxirgi_dars ? fmtDate(att.oxirgi_dars) : '—'}</div>
+        </div>` : ''}
         ${canEdit() ? `<div class="flex flex-wrap gap-1.5 pt-1">
           ${['aktiv', 'muzlatilgan', 'bitirgan', 'arxiv'].filter((x) => x !== s.status).map((x) => `<button data-st="${x}" class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium">${STATUS_LABELS[x][0]}ga o'tkazish</button>`).join('')}
         </div>` : ''}

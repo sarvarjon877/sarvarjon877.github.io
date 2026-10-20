@@ -7,12 +7,14 @@ export async function render(container) {
   const showMoney = role === 'direktor' || role === 'moliyachi'; // umumiy tushum
   const showDebt = ['direktor', 'moliyachi', 'admin'].includes(role); // qarzdorlar soni
   const showStats = role !== 'oqituvchi';
-  const [students, leads, groups, balances, payments] = await Promise.all([
-    run(sb.from('students').select('id,status')),
+  const [students, leads, groups, balances, payments, risks, memberships] = await Promise.all([
+    run(sb.from('students').select('id,first_name,last_name,status')),
     run(sb.from('leads').select('id,status')),
     run(sb.from('groups').select('*, courses(name), employees(first_name,last_name), rooms(name)').eq('status', 'aktiv')),
     run(sb.from('student_balances').select('*')),
     run(sb.from('payments').select('amount,paid_at')),
+    run(sb.from('student_attendance_risk').select('*')),
+    run(sb.from('group_students').select('student_id, groups(name)').eq('status', 'aktiv')),
   ]);
 
   const byStatus = (st) => students.filter((s) => s.status === st).length;
@@ -20,6 +22,62 @@ export async function render(container) {
   const debtors = balances.filter((b) => Number(b.remaining) > 0).length;
   const monthStart = new Date(); monthStart.setDate(1);
   const monthIncome = payments.filter((p) => new Date(p.paid_at) >= monthStart).reduce((a, p) => a + Number(p.amount), 0);
+
+
+  // ---- Signallar: qarzdorlik va ketish xavfi ----
+  const liveIds = new Set(students.filter((s) => s.status !== 'arxiv').map((s) => s.id));
+  const nameOf = Object.fromEntries(students.map((s) => [s.id, `${s.first_name || ''} ${s.last_name || ''}`.trim()]));
+  const groupOf = {};
+  (memberships || []).forEach((m) => { if (m.groups?.name && !groupOf[m.student_id]) groupOf[m.student_id] = m.groups.name; });
+
+  const debtList = (balances || [])
+    .filter((b) => liveIds.has(b.student_id) && Number(b.remaining) > 0)
+    .sort((a, b) => Number(b.remaining) - Number(a.remaining));
+  const debtTotal = debtList.reduce((a, b) => a + Number(b.remaining), 0);
+
+  const liveRisks = (risks || []).filter((r) => liveIds.has(r.student_id));
+  const riskList = liveRisks
+    .filter((r) => r.ketma_ket_kelmagan >= 2 || r.foiz < 75)
+    .sort((a, b) => (b.ketma_ket_kelmagan - a.ketma_ket_kelmagan) || (a.foiz - b.foiz));
+  const attSumJami = liveRisks.reduce((a, r) => a + (r.jami || 0), 0);
+  const attSumKeldi = liveRisks.reduce((a, r) => a + (r.keldi || 0), 0);
+  const attPct = attSumJami ? Math.round((attSumKeldi * 100) / attSumJami) : null;
+
+  const row = (left, right) => `<div class="flex items-center justify-between gap-3 py-2 border-b border-slate-100 last:border-0">${left}${right}</div>`;
+  const sub = (t) => `<div class="text-xs text-slate-400">${esc(t)}</div>`;
+
+  const debtCard = !showDebt ? '' : `
+    <div class="bg-white rounded-xl border border-slate-200/80 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold flex items-center gap-2">💸 Qarzdorlar</h3>
+        <a href="#/finance" class="text-xs font-semibold text-blue-600 hover:underline">Hammasi →</a>
+      </div>
+      <div class="text-2xl font-extrabold text-red-600 leading-none">${fmtMoney(debtTotal)}</div>
+      <div class="text-xs text-slate-500 mt-1 mb-3">${debtList.length} o'quvchi</div>
+      ${debtList.length === 0 ? emptyState('Qarzdor yo'q 🎉') : debtList.slice(0, 6).map((b) => row(
+        `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(nameOf[b.student_id] || '—')}</div>${sub(groupOf[b.student_id] || '—')}</div>`,
+        `<div class="text-sm font-bold text-red-600 shrink-0">${fmtMoney(b.remaining)}</div>`
+      )).join('')}
+    </div>`;
+
+  const riskCard = `
+    <div class="bg-white rounded-xl border border-slate-200/80 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold flex items-center gap-2">⚠️ Ketish xavfi</h3>
+        <a href="#/attendance" class="text-xs font-semibold text-blue-600 hover:underline">Davomat →</a>
+      </div>
+      <div class="text-2xl font-extrabold ${attPct !== null && attPct < 85 ? 'text-amber-600' : 'text-emerald-600'} leading-none">${attPct === null ? '—' : attPct + '%'}</div>
+      <div class="text-xs text-slate-500 mt-1 mb-3">umumiy davomat · ${riskList.length} ta signal</div>
+      ${riskList.length === 0 ? emptyState('Xavf signali yo'q 👍') : riskList.slice(0, 6).map((r) => row(
+        `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(nameOf[r.student_id] || '—')}</div>${sub(groupOf[r.student_id] || '—')}</div>`,
+        `<div class="text-right shrink-0">
+           ${r.ketma_ket_kelmagan >= 2 ? `<div class="text-sm font-bold text-red-600">${r.ketma_ket_kelmagan} dars yo'q</div>` : ''}
+           <div class="text-xs ${r.foiz < 75 ? 'text-amber-600 font-semibold' : 'text-slate-400'}">davomat ${r.foiz}%</div>
+         </div>`
+      )).join('')}
+    </div>`;
+
+  const signals = (showDebt || showStats) ? `<div class="grid gap-4 md:grid-cols-2 mb-6">${debtCard}${riskCard}</div>` : '';
 
   const todayDow = ((new Date().getDay() + 6) % 7) + 1; // 1=Du ... 7=Yak
   const hour = new Date().getHours();
@@ -51,6 +109,8 @@ export async function render(container) {
       ${statCard('Buyurtmalar', byStatus('buyurtma'), 'yellow', '📝', '#/leads')}
       ${showMoney ? statCard('Oylik tushum', `<span class="text-base">${fmtMoney(monthIncome)}</span>`, 'green', '💰', '#/finance') : ''}
     </div>` : ''}
+
+    ${signals}
 
     <div class="bg-white rounded-xl border border-slate-200/80 p-5">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-4">

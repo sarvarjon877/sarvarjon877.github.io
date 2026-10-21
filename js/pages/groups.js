@@ -12,6 +12,7 @@ const groupFields = (initial = {}) => [
   { name: 'name', label: 'Guruh nomi', required: true, value: initial.name, placeholder: 'Masalan: BX-12' },
   { name: 'course_id', label: 'Kurs', type: 'select', required: true, placeholder: 'Tanlang', options: refs.courses.map((c) => ({ value: c.id, label: c.name })), value: initial.course_id },
   { name: 'teacher_id', label: "O'qituvchi", type: 'select', placeholder: 'Tanlang', options: refs.teachers.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` })), value: initial.teacher_id },
+  { name: 'branch_id', label: 'Filial', type: 'select', placeholder: 'Tanlang', options: refs.branches.map((b) => ({ value: b.id, label: b.name })), value: initial.branch_id },
   { name: 'room_id', label: 'Xona', type: 'select', placeholder: 'Tanlang', options: refs.rooms.map((r) => ({ value: r.id, label: r.name })), value: initial.room_id },
   { name: 'price', label: 'Oylik narxi', type: 'money', value: initial.price ?? 500000 },
   { name: 'days', label: 'Dars kunlari', type: 'days', full: true, value: initial.days || [1, 3, 5] },
@@ -23,15 +24,35 @@ const groupFields = (initial = {}) => [
   { name: 'lesson_link', label: 'Onlayn dars havolasi', type: 'text', placeholder: 'https://zoom.us/... yoki Google Meet', value: initial.lesson_link },
 ];
 
+const toMin = (t) => {
+  const [h, m] = String(t || '0:0').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+// Xona yoki o'qituvchi shu kun/vaqtda boshqa guruhga band bo'lsa — ogohlantiradi
+async function clashOk(v, groups, selfId = null) {
+  if (v.status !== 'aktiv') return true;
+  const days = v.days || [];
+  const hits = groups.filter((g) => g.id !== selfId && g.status === 'aktiv'
+    && (g.days || []).some((d) => days.includes(d))
+    && toMin(v.start_time) < toMin(g.end_time) && toMin(g.start_time) < toMin(v.end_time)
+    && ((!v.is_online && !g.is_online && v.room_id && g.room_id === v.room_id)
+      || (v.teacher_id && g.teacher_id === v.teacher_id)));
+  if (hits.length === 0) return true;
+  const txt = hits.map((g) => `${g.name} (${fmtDays(g.days)} ${fmtTime(g.start_time)}–${fmtTime(g.end_time)})`).join(', ');
+  return confirmDialog(`Diqqat — xona yoki o'qituvchi band: ${txt}.\nShunday saqlansinmi?`);
+}
+
 export async function render(container) {
-  const [groups, members, courses, teachers, rooms] = await Promise.all([
+  const [groups, members, courses, teachers, rooms, branches] = await Promise.all([
     run(sb.from('groups').select('*, courses(name), employees(first_name,last_name), rooms(name)').order('created_at', { ascending: false })),
     run(sb.from('group_students').select('group_id').eq('status', 'aktiv')),
     run(sb.from('courses').select('id,name').order('name')),
     run(sb.from('employees').select('id,first_name,last_name').eq('role', 'oqituvchi').eq('active', true)),
     run(sb.from('rooms').select('id,name').order('name')),
+    run(sb.from('branches').select('id,name').order('name')),
   ]);
-  refs = { courses, teachers, rooms };
+  refs = { courses, teachers, rooms, branches };
   const countOf = (gid) => members.filter((m) => m.group_id === gid).length;
 
   container.innerHTML = `
@@ -69,6 +90,7 @@ export async function render(container) {
   if ($('#addGroup', container)) $('#addGroup', container).onclick = async () => {
     const v = await formModal('Yangi guruh ochish', groupFields(), {}, { wide: true });
     if (!v) return;
+    if (!(await clashOk(v, groups))) return;
     await run(sb.from('groups').insert(v));
     toast('Guruh ochildi'); render(container);
   };
@@ -76,6 +98,7 @@ export async function render(container) {
     const g = groups.find((x) => x.id === b.dataset.edit);
     const v = await formModal('Guruhni tahrirlash', groupFields(g), {}, { wide: true });
     if (!v) return;
+    if (!(await clashOk(v, groups, g.id))) return;
     await run(sb.from('groups').update(v).eq('id', g.id));
     toast('Saqlandi'); render(container);
   });

@@ -1,5 +1,5 @@
 import { sb, run } from '../db.js';
-import { $, $$, esc, formModal, confirmDialog, toast, fmtDate, btnCls } from '../ui.js';
+import { $, $$, esc, formModal, confirmDialog, toast, fmtDate, fmtTime, btnCls, today } from '../ui.js';
 
 const STATUSES = [
   { id: 'yangi', title: 'Yangi', color: 'border-blue-400' },
@@ -25,15 +25,56 @@ const leadFields = (initial = {}) => [
   { name: 'note', label: 'Izoh', type: 'textarea', full: true, value: initial.note },
 ];
 
+const trialFields = (groups, initial = {}) => [
+  { name: 'trial_date', label: 'Sinov darsi sanasi', type: 'date', required: true, value: initial.trial_date || today() },
+  { name: 'trial_time', label: 'Vaqti', type: 'time', value: initial.trial_time ? String(initial.trial_time).slice(0, 5) : '14:00' },
+  { name: 'trial_group_id', label: "Qaysi guruhga qo'shiladi", type: 'select', placeholder: 'Tanlang', full: true, options: groups.map((g) => ({ value: g.id, label: g.name })), value: initial.trial_group_id },
+];
+
 export async function render(container) {
-  courses = await run(sb.from('courses').select('id,name').order('name'));
-  const leads = await run(sb.from('leads').select('*, courses(name)').order('created_at', { ascending: false }));
+  const [cs, groups, leads] = await Promise.all([
+    run(sb.from('courses').select('id,name').order('name')),
+    run(sb.from('groups').select('id,name').eq('status', 'aktiv').order('name')),
+    run(sb.from('leads').select('*, courses(name)').order('created_at', { ascending: false })),
+  ]);
+  courses = cs;
+  const groupName = Object.fromEntries(groups.map((g) => [g.id, g.name]));
   const converted = leads.filter((l) => l.status === 'oquvchi').length;
+
+  const td = today();
+  const booked = leads.filter((l) => l.status === 'sinovga_yozildi' && l.trial_date);
+  const trialsToday = booked.filter((l) => l.trial_date === td).sort((a, b) => String(a.trial_time || '').localeCompare(String(b.trial_time || '')));
+  const trialsLate = booked.filter((l) => l.trial_date < td).sort((a, b) => a.trial_date.localeCompare(b.trial_date));
+  const trialsSoon = booked.filter((l) => l.trial_date > td).sort((a, b) => a.trial_date.localeCompare(b.trial_date));
+
+  const trialRow = (l, showDate) => `
+    <div class="flex items-center justify-between gap-3 py-1.5 border-b border-slate-100 last:border-0 text-sm">
+      <div class="min-w-0">
+        <span class="font-semibold">${esc(l.name)}</span>
+        ${l.phone ? `<span class="text-slate-400 text-xs ml-1.5">${esc(l.phone)}</span>` : ''}
+        <div class="text-xs text-slate-400">${showDate ? fmtDate(l.trial_date) + ' · ' : ''}${l.trial_time ? fmtTime(l.trial_time) : 'vaqt belgilanmagan'}${l.trial_group_id ? ' · ' + esc(groupName[l.trial_group_id] || '—') : ''}</div>
+      </div>
+      <div class="flex gap-1.5 shrink-0">
+        <button data-trial="${l.id}" data-res="keldi" class="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700">Keldi ✓</button>
+        <button data-trial="${l.id}" data-res="kelmadi" class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 font-medium hover:bg-slate-200">Kelmadi</button>
+      </div>
+    </div>`;
+
+  const panel = (title, items, cls, showDate) => items.length === 0 ? '' : `
+    <div class="bg-white rounded-xl border border-slate-200/80 border-t-4 ${cls} p-4">
+      <div class="font-bold text-sm mb-2">${title} <span class="text-xs bg-slate-100 rounded-full px-2 py-0.5 ml-1">${items.length}</span></div>
+      ${items.map((l) => trialRow(l, showDate)).join('')}
+    </div>`;
 
   container.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
       <div class="text-sm text-slate-500">Jami: <b>${leads.length}</b> ta lid, o'quvchiga aylangan: <b class="text-emerald-600">${converted}</b> ta</div>
       <button id="addLead" class="${btnCls.primary}">+ Lid qo'shish</button>
+    </div>
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
+      ${panel('🕐 Bugungi sinov darslari', trialsToday, 'border-amber-400', false)}
+      ${panel("⚠️ O'tib ketgan — natijasi belgilanmagan", trialsLate, 'border-rose-400', true)}
+      ${panel('📅 Kelgusi sinov darslari', trialsSoon, 'border-blue-400', true)}
     </div>
     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5 items-start" id="board"></div>`;
 
@@ -58,6 +99,9 @@ export async function render(container) {
               </div>
               ${l.phone ? `<div class="text-slate-500">📞 ${esc(l.phone)}</div>` : ''}
               <div class="text-xs text-slate-400">${esc(SOURCES.find((s) => s.value === l.source)?.label || l.source)} · ${esc(l.courses?.name || 'Kurs tanlanmagan')} · ${fmtDate(l.created_at)}</div>
+              ${l.trial_date ? `<div class="text-xs ${l.trial_result === 'kelmadi' ? 'text-rose-600' : 'text-amber-700'} font-medium bg-white border border-slate-100 rounded-lg px-2 py-1">
+                🕐 Sinov: ${fmtDate(l.trial_date)}${l.trial_time ? ' ' + fmtTime(l.trial_time) : ''}${l.trial_group_id ? ' · ' + esc(groupName[l.trial_group_id] || '—') : ''}${l.trial_result === 'kelmadi' ? ' · kelmadi' : ''}
+              </div>` : ''}
               ${l.note ? `<div class="text-xs text-slate-500 italic">${esc(l.note)}</div>` : ''}
               <div class="flex flex-wrap gap-1.5 pt-1.5">
                 ${st.id !== 'yoqotildi' ? nextBtn(l, st.id) : ''}
@@ -69,8 +113,12 @@ export async function render(container) {
   }).join('');
 
   function nextBtn(l, cur) {
-    const flow = { yangi: ['boglanildi', "Bog'lanildi →"], boglanildi: ['sinovga_yozildi', 'Sinovga yozish →'], sinovga_yozildi: ['keldi', 'Keldi →'] };
+    const flow = { yangi: ['boglanildi', "Bog'lanildi →"], boglanildi: ['sinovga_yozildi', 'Sinovga yozish →'] };
     if (flow[cur]) return `<button data-move="${l.id}" data-to="${flow[cur][0]}" class="text-xs px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 font-medium hover:bg-blue-100">${flow[cur][1]}</button>`;
+    if (cur === 'sinovga_yozildi') return `
+      <button data-trial="${l.id}" data-res="keldi" class="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700">Keldi ✓</button>
+      <button data-trial="${l.id}" data-res="kelmadi" class="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 font-medium hover:bg-slate-200">Kelmadi</button>
+      <button data-retrial="${l.id}" class="text-xs px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-medium hover:bg-amber-100">Sanani ko'chirish</button>`;
     if (cur === 'keldi') return `<button data-convert="${l.id}" class="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700">O'quvchiga aylantirish ✓</button>`;
     return '';
   }
@@ -100,7 +148,34 @@ export async function render(container) {
   });
 
   $$('[data-move]', board).forEach((b) => b.onclick = async () => {
-    await run(sb.from('leads').update({ status: b.dataset.to }).eq('id', b.dataset.move));
+    const to = b.dataset.to;
+    const patch = { status: to };
+    if (to === 'sinovga_yozildi') {
+      if (groups.length === 0) { toast('Avval aktiv guruh ochish kerak', 'error'); return; }
+      const v = await formModal('Sinov darsiga yozish', trialFields(groups));
+      if (!v) return;
+      Object.assign(patch, v, { trial_result: null });
+    }
+    if (to === 'yangi') Object.assign(patch, { trial_date: null, trial_time: null, trial_group_id: null, trial_result: null });
+    await run(sb.from('leads').update(patch).eq('id', b.dataset.move));
+    render(container);
+  });
+
+  $$('[data-retrial]', board).forEach((b) => b.onclick = async () => {
+    const l = leads.find((x) => x.id === b.dataset.retrial);
+    const v = await formModal("Sinov darsini ko'chirish", trialFields(groups, l));
+    if (!v) return;
+    await run(sb.from('leads').update({ ...v, trial_result: null }).eq('id', l.id));
+    toast("Sinov darsi ko'chirildi");
+    render(container);
+  });
+
+  $$('[data-trial]', container).forEach((b) => b.onclick = async () => {
+    const keldi = b.dataset.res === 'keldi';
+    await run(sb.from('leads').update(keldi
+      ? { status: 'keldi', trial_result: 'keldi' }
+      : { status: 'boglanildi', trial_result: 'kelmadi' }).eq('id', b.dataset.trial));
+    toast(keldi ? 'Sinov darsiga keldi ✓' : "Kelmadi — qayta bog'lanishga qaytarildi", keldi ? 'success' : 'error');
     render(container);
   });
 
@@ -114,8 +189,11 @@ export async function render(container) {
     const parts = l.name.trim().split(/\s+/);
     const student = { first_name: parts[0] || l.name, last_name: parts.slice(1).join(' ') || '', phone: l.phone, status: 'yangi', note: l.note };
     const [created] = await run(sb.from('students').insert(student).select());
+    if (l.trial_group_id) {
+      await run(sb.from('group_students').insert({ group_id: l.trial_group_id, student_id: created.id, status: 'aktiv', joined_at: today() }));
+    }
     await run(sb.from('leads').update({ status: 'oquvchi', student_id: created.id }).eq('id', l.id));
-    toast("O'quvchilar ro'yxatiga qo'shildi 🎉");
+    toast(l.trial_group_id ? "O'quvchi qo'shildi va guruhga biriktirildi 🎉" : "O'quvchilar ro'yxatiga qo'shildi 🎉");
     render(container);
   });
 }

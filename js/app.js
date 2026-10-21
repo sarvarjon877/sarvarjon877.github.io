@@ -17,6 +17,7 @@ const SECTIONS = [
     pages: [
       { id: 'students', title: "O'quvchilar", icon: '🎓', mod: './pages/students.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
       { id: 'groups', title: 'Guruhlar', icon: '👥', mod: './pages/groups.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'schedule', title: 'Xona bandligi', icon: '🚪', mod: './pages/schedule.js', roles: ['direktor', 'moliyachi', 'admin'] },
       { id: 'library', title: 'Darsliklar', icon: '📚', mod: './pages/lessons.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
       { id: 'attendance', title: 'Davomat', icon: '📋', mod: './pages/attendance.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
       { id: 'chat', title: 'Chat / Savollar', icon: '💬', mod: './pages/chat.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },

@@ -182,6 +182,17 @@ export async function openProfile(studentId, pageContainer) {
         </div>
         <div class="text-slate-500">📞 ${esc(s.phone || '—')} ${s.parent_phone ? `· 👨‍👩‍👦 ${esc(s.parent_phone)}` : ''}</div>
         ${s.note ? `<div class="text-slate-500 italic text-xs">${esc(s.note)}</div>` : ''}
+        ${s.status === 'muzlatilgan' ? `
+        <div class="rounded-xl border ${s.freeze_until && s.freeze_until <= today() ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200 bg-slate-50/60'} p-3">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">❄️ Muzlatilgan</div>
+          <div class="text-sm mt-0.5">${esc(s.freeze_reason || 'sabab yozilmagan')}</div>
+          <div class="text-xs text-slate-500 mt-1">
+            ${s.freeze_at ? `${fmtDate(s.freeze_at)} dan` : ''}
+            ${s.freeze_until ? ` · qaytishi: <b>${fmtDate(s.freeze_until)}</b>` : " · qaytish sanasi belgilanmagan"}
+          </div>
+          ${s.freeze_until && s.freeze_until <= today() ? `<div class="text-xs font-bold text-amber-700 mt-1">⚠️ Qaytish vaqti keldi — bog'lanish kerak</div>` : ''}
+          ${canEdit() ? `<button id="refreezeBtn" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-white font-medium mt-2">✏️ Sabab / sanani o'zgartirish</button>` : ''}
+        </div>` : ''}
         ${tgBot && canEdit() ? `<div class="pt-1">
           ${s.telegram_chat_id
             ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">✈️ Telegram ulangan</span>`
@@ -267,9 +278,31 @@ export async function openProfile(studentId, pageContainer) {
     window.open(link, '_blank');
   };
 
+  if ($('#refreezeBtn', m.body)) $('#refreezeBtn', m.body).onclick = async () => {
+    const v = await formModal('Muzlatish ma\'lumotini tahrirlash', [
+      { name: 'freeze_reason', label: 'Muzlatish sababi', required: true, full: true, value: s.freeze_reason },
+      { name: 'freeze_until', label: 'Qaysi sanada qaytadi', type: 'date', required: true, value: s.freeze_until },
+    ]);
+    if (!v) return;
+    await run(sb.from('students').update(v).eq('id', studentId));
+    toast('Saqlandi'); m.close(); render(pageContainer);
+  };
+
   $$('[data-st]', m.body).forEach((b) => b.onclick = async () => {
-    await run(sb.from('students').update({ status: b.dataset.st }).eq('id', studentId));
-    toast('Holat yangilandi'); m.close(); render(pageContainer);
+    const to = b.dataset.st;
+    const patch = { status: to };
+    if (to === 'muzlatilgan') {
+      const v = await formModal("O'quvchini muzlatish", [
+        { name: 'freeze_reason', label: 'Muzlatish sababi', required: true, full: true, placeholder: "Masalan: safarga ketdi, kasal, moliyaviy qiyinchilik" },
+        { name: 'freeze_until', label: 'Qaysi sanada qaytadi', type: 'date', required: true },
+      ]);
+      if (!v) return;
+      Object.assign(patch, v, { freeze_at: today() });
+    } else if (s.status === 'muzlatilgan') {
+      Object.assign(patch, { freeze_reason: null, freeze_at: null, freeze_until: null });
+    }
+    await run(sb.from('students').update(patch).eq('id', studentId));
+    toast(to === 'muzlatilgan' ? 'Muzlatildi' : 'Holat yangilandi'); m.close(); render(pageContainer);
   });
   if ($('#joinBtn', m.body)) $('#joinBtn', m.body).onclick = async () => {
     const gid = $('#grpSel', m.body).value;

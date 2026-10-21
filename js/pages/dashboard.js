@@ -8,8 +8,8 @@ export async function render(container) {
   const showDebt = ['direktor', 'moliyachi', 'admin'].includes(role); // qarzdorlar soni
   const showStats = role !== 'oqituvchi';
   const [students, leads, groups, balances, payments, risks, memberships] = await Promise.all([
-    run(sb.from('students').select('id,first_name,last_name,status,due_date')),
-    run(sb.from('leads').select('id,status')),
+    run(sb.from('students').select('id,first_name,last_name,status,due_date,freeze_reason,freeze_until')),
+    run(sb.from('leads').select('id,name,phone,status,trial_date,trial_time,trial_group_id')),
     run(sb.from('groups').select('*, courses(name), employees(first_name,last_name), rooms(name)').eq('status', 'aktiv')),
     run(sb.from('student_balances').select('*')),
     run(sb.from('payments').select('amount,paid_at')),
@@ -54,7 +54,7 @@ export async function render(container) {
       </div>
       <div class="text-2xl font-extrabold text-red-600 leading-none">${fmtMoney(debtTotal)}</div>
       <div class="text-xs text-slate-500 mt-1 mb-3">${debtList.length} o'quvchi</div>
-      ${debtList.length === 0 ? emptyState('Qarzdor yo'q 🎉') : debtList.slice(0, 6).map((b) => row(
+      ${debtList.length === 0 ? emptyState("Qarzdor yo'q 🎉") : debtList.slice(0, 6).map((b) => row(
         `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(nameOf[b.student_id] || '—')}</div>${sub(groupOf[b.student_id] || '—')}</div>`,
         `<div class="text-sm font-bold text-red-600 shrink-0">${fmtMoney(b.remaining)}</div>`
       )).join('')}
@@ -68,7 +68,7 @@ export async function render(container) {
       </div>
       <div class="text-2xl font-extrabold ${attPct !== null && attPct < 85 ? 'text-amber-600' : 'text-emerald-600'} leading-none">${attPct === null ? '—' : attPct + '%'}</div>
       <div class="text-xs text-slate-500 mt-1 mb-3">umumiy davomat · ${riskList.length} ta signal</div>
-      ${riskList.length === 0 ? emptyState('Xavf signali yo'q 👍') : riskList.slice(0, 6).map((r) => row(
+      ${riskList.length === 0 ? emptyState("Xavf signali yo'q 👍") : riskList.slice(0, 6).map((r) => row(
         `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(nameOf[r.student_id] || '—')}</div>${sub(groupOf[r.student_id] || '—')}</div>`,
         `<div class="text-right shrink-0">
            ${r.ketma_ket_kelmagan >= 2 ? `<div class="text-sm font-bold text-red-600">${r.ketma_ket_kelmagan} dars yo'q</div>` : ''}
@@ -103,7 +103,60 @@ export async function render(container) {
           )).join('')}
     </div>`;
 
-  const signals = (showDebt || showStats) ? `<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">${debtCard}${riskCard}${dueCard}</div>` : '';
+  // ---- Sinov darslari (02-modul) ----
+  const booked = leads.filter((l) => l.status === 'sinovga_yozildi' && l.trial_date);
+  const trialToday = booked.filter((l) => l.trial_date === todayStr)
+    .sort((a, b) => String(a.trial_time || '').localeCompare(String(b.trial_time || '')));
+  const trialLate = booked.filter((l) => l.trial_date < todayStr);
+  const trialSoon = booked.filter((l) => l.trial_date > todayStr && l.trial_date <= in3Str)
+    .sort((a, b) => a.trial_date.localeCompare(b.trial_date));
+  const groupNameById = Object.fromEntries(groups.map((g) => [g.id, g.name]));
+
+  const trialCard = !showStats ? '' : `
+    <div class="bg-white rounded-xl border border-slate-200/80 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold flex items-center gap-2">🕐 Sinov darslari</h3>
+        <a href="#/leads" class="text-xs font-semibold text-blue-600 hover:underline">Lidlar →</a>
+      </div>
+      <div class="flex gap-6 mb-3">
+        <div><div class="text-2xl font-extrabold text-amber-600 leading-none">${trialToday.length}</div><div class="text-xs text-slate-500 mt-1">bugun</div></div>
+        <div><div class="text-2xl font-extrabold text-blue-600 leading-none">${trialSoon.length}</div><div class="text-xs text-slate-500 mt-1">3 kun ichida</div></div>
+        <div><div class="text-2xl font-extrabold ${trialLate.length ? 'text-rose-600' : 'text-slate-300'} leading-none">${trialLate.length}</div><div class="text-xs text-slate-500 mt-1">natijasiz</div></div>
+      </div>
+      ${[...trialToday, ...trialSoon, ...trialLate].length === 0
+        ? `<div class="text-xs text-slate-400 py-2">Rejalashtirilgan sinov darsi yo'q.</div>`
+        : [...trialToday, ...trialSoon, ...trialLate].slice(0, 6).map((l) => row(
+            `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(l.name)}</div>${sub(groupNameById[l.trial_group_id] || l.phone || '—')}</div>`,
+            `<div class="text-sm font-bold shrink-0 ${l.trial_date < todayStr ? 'text-rose-600' : l.trial_date === todayStr ? 'text-amber-600' : 'text-blue-600'}">${l.trial_date === todayStr ? (l.trial_time ? fmtTime(l.trial_time) : 'bugun') : fmtDate(l.trial_date)}</div>`
+          )).join('')}
+    </div>`;
+
+  // ---- Muzlatishdan qaytadiganlar (09-modul) ----
+  const frozen = students.filter((s) => s.status === 'muzlatilgan');
+  const backNow = frozen.filter((s) => s.freeze_until && s.freeze_until <= todayStr)
+    .sort((a, b) => a.freeze_until.localeCompare(b.freeze_until));
+  const backSoon = frozen.filter((s) => s.freeze_until && s.freeze_until > todayStr && s.freeze_until <= in3Str)
+    .sort((a, b) => a.freeze_until.localeCompare(b.freeze_until));
+
+  const freezeCard = (!showStats || frozen.length === 0) ? '' : `
+    <div class="bg-white rounded-xl border border-slate-200/80 p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold flex items-center gap-2">❄️ Muzlatilganlar</h3>
+        <a href="#/students" class="text-xs font-semibold text-blue-600 hover:underline">O'quvchilar →</a>
+      </div>
+      <div class="flex gap-6 mb-3">
+        <div><div class="text-2xl font-extrabold text-slate-700 leading-none">${frozen.length}</div><div class="text-xs text-slate-500 mt-1">jami</div></div>
+        <div><div class="text-2xl font-extrabold ${backNow.length ? 'text-amber-600' : 'text-slate-300'} leading-none">${backNow.length}</div><div class="text-xs text-slate-500 mt-1">qaytish vaqti keldi</div></div>
+      </div>
+      ${[...backNow, ...backSoon].length === 0
+        ? `<div class="text-xs text-slate-400 py-2">Yaqin kunda qaytadigan o'quvchi yo'q.</div>`
+        : [...backNow, ...backSoon].slice(0, 6).map((s) => row(
+            `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(dueName(s))}</div>${sub(s.freeze_reason || '—')}</div>`,
+            `<div class="text-sm font-bold shrink-0 ${s.freeze_until <= todayStr ? 'text-amber-600' : 'text-slate-500'}">${fmtDate(s.freeze_until)}</div>`
+          )).join('')}
+    </div>`;
+
+  const signals = (showDebt || showStats) ? `<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">${debtCard}${riskCard}${dueCard}${trialCard}${freezeCard}</div>` : '';
 
   const todayDow = ((new Date().getDay() + 6) % 7) + 1; // 1=Du ... 7=Yak
   const hour = new Date().getHours();

@@ -71,7 +71,8 @@ export async function render(container) {
           <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-100">
             <th class="px-5 py-3 font-semibold">Sana</th><th class="px-4 py-3 font-semibold">O'quvchi</th>
             <th class="px-4 py-3 font-semibold">Summa</th><th class="px-4 py-3 font-semibold">Usul</th>
-            <th class="px-4 py-3 font-semibold">Guruh</th><th class="px-4 py-3 font-semibold">Izoh</th><th></th>
+            <th class="px-4 py-3 font-semibold">Guruh</th><th class="px-4 py-3 font-semibold">Va'da</th>
+            <th class="px-4 py-3 font-semibold">Izoh</th><th></th>
           </tr></thead>
           <tbody>${payments.map((p) => `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
             <td class="px-5 py-3 text-slate-500">${fmtDate(p.paid_at)}</td>
@@ -79,6 +80,9 @@ export async function render(container) {
             <td class="px-4 py-3 font-bold text-emerald-600">+${fmtMoney(p.amount)}</td>
             <td class="px-4 py-3 text-slate-500">${esc(METHODS.find((m) => m.value === p.method)?.label || p.method)}</td>
             <td class="px-4 py-3 text-slate-500">${esc(p.groups?.name || '—')}</td>
+            <td class="px-4 py-3 text-xs">${p.promise_date
+              ? `<span class="font-semibold ${p.promise_date < today() ? 'text-rose-600' : 'text-amber-600'}">${fmtDate(p.promise_date)}</span>${p.promise_amount ? `<div class="text-slate-400">${fmtMoney(p.promise_amount)}</div>` : ''}`
+              : '<span class="text-slate-300">—</span>'}</td>
             <td class="px-4 py-3 text-slate-400 text-xs">${esc(p.note || '')}</td>
             <td class="px-4 py-3 text-right">${fullFinance() ? `<button data-delpay="${p.id}" class="${btnCls.iconDel}">🗑</button>` : ''}</td>
           </tr>`).join('')}</tbody>
@@ -259,11 +263,19 @@ export async function render(container) {
       { name: 'amount', label: 'Summa', type: 'money', required: true },
       { name: 'method', label: 'Usul', type: 'select', options: METHODS },
       { name: 'paid_at', label: 'Sana', type: 'date', value: today() },
-      { name: 'note', label: 'Izoh', type: 'textarea', full: true },
+      { name: 'promise_amount', label: "Qolgan summa (qisman to'lov bo'lsa)", type: 'money' },
+      { name: 'promise_date', label: 'Qolganini qachon to\'laydi', type: 'date' },
+      { name: 'note', label: 'Izoh / zametka', type: 'textarea', full: true, placeholder: "Masalan: yarmini bugun berdi, qolganini payshanba kuni keltiraman dedi" },
     ]);
     if (!v) return;
     await run(sb.from('payments').insert(v));
-    toast("To'lov saqlandi ✅"); render(container);
+    // Va'da sanasi kiritilsa — o'quvchining "keyingi to'lov kuni"ga yoziladi,
+    // shunda bosh sahifadagi "To'lov kuni" kartasi eslatib turadi.
+    if (v.promise_date) {
+      await run(sb.from('students').update({ due_date: v.promise_date }).eq('id', v.student_id));
+    }
+    toast(v.promise_date ? "To'lov saqlandi ✅ Va'da sanasi eslatmaga qo'yildi" : "To'lov saqlandi ✅");
+    render(container);
   };
 
   draw();

@@ -7,6 +7,7 @@ export async function render(container) {
   const showMoney = role === 'direktor' || role === 'moliyachi'; // umumiy tushum
   const showDebt = ['direktor', 'moliyachi', 'admin'].includes(role); // qarzdorlar soni
   const showStats = role !== 'oqituvchi';
+  const canEditGroups = ['direktor', 'moliyachi', 'admin'].includes(role); // jadvalni kim o'zgartira oladi
   const [students, leads, groups, balances, payments, risks, memberships] = await Promise.all([
     run(sb.from('students').select('id,first_name,last_name,status,due_date,freeze_reason,freeze_until')),
     run(sb.from('leads').select('id,name,phone,status,trial_date,trial_time,trial_group_id')),
@@ -212,9 +213,12 @@ export async function render(container) {
       : `<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         ${list.map((g) => `
           <div class="border border-slate-100 rounded-xl p-4 hover:shadow-md transition bg-slate-50/50">
-            <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center justify-between mb-2 gap-2">
               <span class="font-bold">${esc(g.name)}</span>
-              <span class="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">${fmtTime(g.start_time)} – ${fmtTime(g.end_time)}</span>
+              <span class="flex items-center gap-1 shrink-0">
+                <span class="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">${fmtTime(g.start_time)} – ${fmtTime(g.end_time)}</span>
+                ${canEditGroups ? `<a href="#/groups?edit=${g.id}" title="Jadvalni o'zgartirish" class="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition">✏️</a>` : ''}
+              </span>
             </div>
             <div class="text-sm text-slate-500 space-y-1">
               <div>📚 ${esc(g.courses?.name || '—')} ${g.is_online ? '<span class="inline-block px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 text-xs font-semibold">Onlayn</span>' : ''}</div>

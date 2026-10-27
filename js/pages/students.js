@@ -61,7 +61,8 @@ export async function render(container) {
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <input id="search" value="${esc(state.search)}" placeholder="Qidirish (ism, telefon)..." class="border border-slate-200 rounded-xl px-4 py-2.5 text-sm w-72 max-w-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
       <div class="flex gap-2">
-        ${canPay() ? `<button id="smsDebt" class="px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-semibold transition">📩 Qarzdorlarga SMS</button>` : ''}
+        ${canPay() ? `<button id="smsDebt" class="px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-semibold transition">📩 Qarzdorlarga SMS</button>
+        <button id="smsPromise" class="px-4 py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 text-sm font-semibold transition">🕐 To'lov kuni kelganlarga SMS</button>` : ''}
         ${canEdit() ? `<button id="addStudent" class="${btnCls.primary}">+ O'quvchi qo'shish</button>` : ''}
       </div>
     </div>
@@ -151,6 +152,21 @@ export async function render(container) {
     else toast(`✅ ${res.sent} ta SMS yuborildi${res.fail ? `, ${res.fail} xato` : ''}`);
     btn.disabled = false; btn.textContent = '📩 Qarzdorlarga SMS';
   };
+  // To'lov kuni bugun yoki o'tib ketgan, lekin hali qarzi bor o'quvchilarga eslatma
+  if ($('#smsPromise', container)) $('#smsPromise', container).onclick = async () => {
+    const td = today();
+    const due = students.filter((s) => s.status !== 'arxiv' && s.due_date && s.due_date <= td && remOf(s.id) > 0);
+    if (due.length === 0) return toast("To'lov kuni kelgan qarzdor yo'q", 'info');
+    if (!(await confirmDialog(`${due.length} ta o'quvchiga to'lov kuni haqida eslatma yuboriladi. Davom etasizmi?`))) return;
+    const btn = $('#smsPromise', container); const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Yuborilmoqda...';
+    const res = await smsCall('notify-promises');
+    if (!res?.ok) toast(res?.message || 'SMS yuborishda xato', 'error');
+    else if (res.test > 0 && res.sent === 0) toast(`TEST rejimi: ${res.test} ta SMS tayyorlandi`, 'info');
+    else toast(`✅ ${res.sent} ta eslatma yuborildi${res.fail ? `, ${res.fail} xato` : ''}`);
+    btn.disabled = false; btn.textContent = label;
+  };
+
   $('#search', container).oninput = (e) => { state.search = e.target.value; draw(); };
   $$('#tabs button', container).forEach((b) => b.onclick = () => { state.tab = b.dataset.tab; render(container); });
 

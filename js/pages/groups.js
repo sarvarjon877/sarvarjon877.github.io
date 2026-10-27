@@ -7,6 +7,7 @@ const canCharge = () => ['direktor', 'moliyachi'].includes(currentUser.role);
 const showMoney = () => ['direktor', 'moliyachi'].includes(currentUser.role);
 
 let refs = { courses: [], teachers: [], rooms: [], branches: [] };
+let filter = 'aktiv'; // hozir | aktiv | arxiv | hammasi
 
 const groupFields = (initial = {}) => [
   { name: 'name', label: 'Guruh nomi', required: true, value: initial.name, placeholder: 'Masalan: BX-12' },
@@ -55,18 +56,41 @@ export async function render(container) {
   refs = { courses, teachers, rooms, branches };
   const countOf = (gid) => members.filter((m) => m.group_id === gid).length;
 
+  // Hozir dars ketayotgan guruhlar: bugungi kun + joriy vaqt oraliqda
+  const now = new Date();
+  const nowDow = ((now.getDay() + 6) % 7) + 1; // 1=Du ... 7=Yak
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const inSession = (g) => g.status === 'aktiv' && (g.days || []).includes(nowDow)
+    && toMin(g.start_time) <= nowMin && nowMin < toMin(g.end_time);
+
+  const FILTERS = [
+    { id: 'hozir', label: '🔴 Hozir dars ketyapti', test: inSession },
+    { id: 'aktiv', label: 'Aktiv', test: (g) => g.status === 'aktiv' },
+    { id: 'arxiv', label: 'Arxiv', test: (g) => g.status !== 'aktiv' },
+    { id: 'hammasi', label: 'Hammasi', test: () => true },
+  ];
+  const active = FILTERS.find((f) => f.id === filter) || FILTERS[1];
+  const shown = groups.filter(active.test);
+
   container.innerHTML = `
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
-      <div class="text-sm text-slate-500">Jami: <b>${groups.length}</b> ta guruh</div>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex gap-1.5 flex-wrap" id="gfilters">
+        ${FILTERS.map((f) => {
+    const n = groups.filter(f.test).length;
+    const on = f.id === active.id;
+    return `<button data-gf="${f.id}" class="px-3.5 py-1.5 rounded-full text-sm font-medium border transition ${on ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 bg-white hover:bg-slate-50'}">${f.label} <span class="${on ? 'opacity-70' : 'text-slate-400'}">${n}</span></button>`;
+  }).join('')}
+      </div>
       ${canEdit() ? `<button id="addGroup" class="${btnCls.primary}">+ Guruh ochish</button>` : ''}
     </div>
-    ${groups.length === 0 ? `<div class="bg-white rounded-xl border border-slate-200/80">${emptyState("Hozircha guruhlar yo'q — birinchi guruhni oching")}</div>` : `
+    ${shown.length === 0 ? `<div class="bg-white rounded-xl border border-slate-200/80">${emptyState(
+    active.id === 'hozir' ? "Hozir dars ketayotgan guruh yo'q" : "Bu bo'limda guruh yo'q")}</div>` : `
     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      ${groups.map((g) => `
-        <div class="bg-white rounded-xl border border-slate-200/80 p-5 hover:shadow-md transition ${g.status !== 'aktiv' ? 'opacity-60' : ''}">
+      ${shown.map((g) => `
+        <div class="bg-white rounded-xl border p-5 hover:shadow-md transition ${inSession(g) ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200/80'} ${g.status !== 'aktiv' ? 'opacity-60' : ''}">
           <div class="flex items-start justify-between mb-2">
             <div>
-              <div class="font-bold text-base">${esc(g.name)}</div>
+              <div class="font-bold text-base">${esc(g.name)}${inSession(g) ? ' <span class="align-middle text-[11px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">hozir dars</span>' : ''}</div>
               <div class="text-xs text-slate-400 mt-0.5">${esc(g.courses?.name || '')} ${g.is_online ? '· <span class="px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 font-semibold">Onlayn</span>' : ''}</div>
             </div>
             <div class="flex shrink-0">
@@ -94,14 +118,25 @@ export async function render(container) {
     await run(sb.from('groups').insert(v));
     toast('Guruh ochildi'); render(container);
   };
-  $$('[data-edit]', container).forEach((b) => b.onclick = async () => {
-    const g = groups.find((x) => x.id === b.dataset.edit);
+  const openEdit = async (g) => {
+    if (!g) return;
     const v = await formModal('Guruhni tahrirlash', groupFields(g), {}, { wide: true });
     if (!v) return;
     if (!(await clashOk(v, groups, g.id))) return;
     await run(sb.from('groups').update(v).eq('id', g.id));
     toast('Saqlandi'); render(container);
-  });
+  };
+  $$('[data-edit]', container).forEach((b) => b.onclick = () => openEdit(groups.find((x) => x.id === b.dataset.edit)));
+
+  $$('#gfilters button', container).forEach((b) => b.onclick = () => { filter = b.dataset.gf; render(container); });
+
+  // Bosh sahifadagi dars jadvalidan "#/groups?edit=<id>" bilan kelinsa — darrov tahrirlash oynasi
+  const editId = new URLSearchParams(location.hash.split('?')[1] || '').get('edit');
+  if (editId) {
+    history.replaceState(null, '', '#/groups');
+    const g = groups.find((x) => x.id === editId);
+    if (g) openEdit(g); else toast('Guruh topilmadi', 'error');
+  }
   $$('[data-del]', container).forEach((b) => b.onclick = async () => {
     if (!(await confirmDialog("Guruh o'chiriladi (o'quvchilar o'chmaydi). Davom etasizmi?"))) return;
     await run(sb.from('groups').delete().eq('id', b.dataset.del));

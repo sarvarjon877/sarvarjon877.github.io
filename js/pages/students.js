@@ -230,7 +230,17 @@ export async function openProfile(studentId, pageContainer) {
             <div class="font-bold ${remaining > 0 ? 'text-rose-600' : 'text-emerald-600'} text-sm mt-0.5">${fmtMoney(remaining)}</div>
           </div>
         </div>
-        ${canPay() ? `<button id="dealBtn" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium mt-1">✏️ Kelishuv summasini o'zgartirish</button>` : ''}
+        ${s.due_date ? `
+        <div class="rounded-xl border ${s.due_date <= today() ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200 bg-slate-50/60'} p-3 mt-1">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">📅 To'lov kuni</div>
+          <div class="font-bold text-sm mt-0.5 ${s.due_date <= today() ? 'text-amber-700' : 'text-slate-700'}">${fmtDate(s.due_date)}</div>
+          ${s.due_note ? `<div class="text-xs text-slate-500 italic mt-1">${esc(s.due_note)}</div>` : ''}
+          ${s.due_date <= today() ? `<div class="text-xs font-bold text-amber-700 mt-1">⚠️ Kuni keldi — eslatish kerak</div>` : ''}
+        </div>` : ''}
+        ${canPay() ? `<div class="flex flex-wrap gap-1.5 mt-1">
+          <button id="dealBtn" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium">✏️ Kelishuv summasini o'zgartirish</button>
+          <button id="dueBtn" class="text-xs px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium">📅 To'lov kuni / zametka</button>
+        </div>` : ''}
         ` : ''}
         ${att && att.jami ? `
         <div class="rounded-xl border ${att.ketma_ket_kelmagan >= 2 ? 'border-rose-200 bg-rose-50/40' : 'border-slate-100'} p-3 mt-1">
@@ -297,7 +307,7 @@ export async function openProfile(studentId, pageContainer) {
   if ($('#refreezeBtn', m.body)) $('#refreezeBtn', m.body).onclick = async () => {
     const v = await formModal('Muzlatish ma\'lumotini tahrirlash', [
       { name: 'freeze_reason', label: 'Muzlatish sababi', required: true, full: true, value: s.freeze_reason },
-      { name: 'freeze_until', label: 'Qaysi sanada qaytadi', type: 'date', required: true, value: s.freeze_until },
+      { name: 'freeze_until', label: "Qaysi sanada qaytadi (majburiy emas)", type: 'date', value: s.freeze_until },
     ]);
     if (!v) return;
     await run(sb.from('students').update(v).eq('id', studentId));
@@ -310,7 +320,7 @@ export async function openProfile(studentId, pageContainer) {
     if (to === 'muzlatilgan') {
       const v = await formModal("O'quvchini muzlatish", [
         { name: 'freeze_reason', label: 'Muzlatish sababi', required: true, full: true, placeholder: "Masalan: safarga ketdi, kasal, moliyaviy qiyinchilik" },
-        { name: 'freeze_until', label: 'Qaysi sanada qaytadi', type: 'date', required: true },
+        { name: 'freeze_until', label: "Qaysi sanada qaytadi (majburiy emas)", type: 'date' },
       ]);
       if (!v) return;
       Object.assign(patch, v, { freeze_at: today() });
@@ -338,6 +348,17 @@ export async function openProfile(studentId, pageContainer) {
     if (!v) return;
     await run(sb.from('students').update({ deal_amount: v.deal_amount || 0 }).eq('id', studentId));
     toast('Kelishuv summasi saqlandi'); refresh();
+  };
+  // To'lov kuni + o'sha kunga zametka. Kuni kelganda bosh sahifada va SMS tugmasida chiqadi.
+  if ($('#dueBtn', m.body)) $('#dueBtn', m.body).onclick = async () => {
+    const v = await formModal("To'lov kuni va zametka", [
+      { name: 'due_date', label: 'To\'lov kuni', type: 'date', value: s.due_date },
+      { name: 'due_note', label: 'Zametka (o\'zingiz uchun)', type: 'textarea', full: true, value: s.due_note, placeholder: 'Masalan: kurs pulini 5-sida to\'layman dedi' },
+    ]);
+    if (!v) return;
+    await run(sb.from('students').update({ due_date: v.due_date, due_note: v.due_note }).eq('id', studentId));
+    toast(v.due_date ? `Eslatma qo'yildi: ${fmtDate(v.due_date)}` : 'Saqlandi');
+    refresh();
   };
   if ($('#payBtn', m.body)) $('#payBtn', m.body).onclick = async () => {
     const v = await formModal("To'lov qabul qilish", [

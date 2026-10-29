@@ -9,7 +9,7 @@ export async function render(container) {
   const showStats = role !== 'oqituvchi';
   const canEditGroups = ['direktor', 'moliyachi', 'admin'].includes(role); // jadvalni kim o'zgartira oladi
   const [students, leads, groups, balances, payments, risks, memberships] = await Promise.all([
-    run(sb.from('students').select('id,first_name,last_name,status,due_date,freeze_reason,freeze_until')),
+    run(sb.from('students').select('id,first_name,last_name,status,due_date,due_note,freeze_reason,freeze_until')),
     run(sb.from('leads').select('id,name,phone,status,trial_date,trial_time,trial_group_id')),
     run(sb.from('groups').select('*, courses(name), employees(first_name,last_name), rooms(name)').eq('status', 'aktiv')),
     run(sb.from('student_balances').select('*')),
@@ -99,7 +99,7 @@ export async function render(container) {
       ${[...overdue, ...dueSoon].length === 0
         ? `<div class="text-xs text-slate-400 py-2">To'lov kuni belgilangan o'quvchi yo'q. Kartada "Keyingi to'lov kuni"ni qo'ying.</div>`
         : [...overdue, ...dueSoon].slice(0, 6).map((s) => row(
-            `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(dueName(s))}</div>${sub(groupOf[s.id] || '—')}</div>`,
+            `<div class="min-w-0"><div class="font-semibold text-sm truncate">${esc(dueName(s))}</div>${sub(s.due_note || groupOf[s.id] || '—')}</div>`,
             `<div class="text-sm font-bold shrink-0 ${s.due_date < todayStr ? 'text-rose-600' : 'text-amber-600'}">${fmtDate(s.due_date)}</div>`
           )).join('')}
     </div>`;

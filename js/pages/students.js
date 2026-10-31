@@ -285,9 +285,13 @@ export async function openProfile(studentId, pageContainer) {
           ${[...payments.map((p) => ({ ...p, _t: 'in', _d: p.paid_at })), ...charges.map((c) => ({ ...c, _t: 'out', _d: c.charged_at }))]
             .sort((a, b) => String(b._d).localeCompare(String(a._d)))
             .map((r) => `
-            <div class="flex items-center justify-between py-1.5 border-b border-slate-50">
-              <span class="text-xs text-slate-400">${fmtDate(r._d)} ${r._t === 'in' ? '· ' + esc(METHODS.find((mt) => mt.value === r.method)?.label || r.method || '') : '· ' + esc(r.reason || 'hisobdan yechish')}</span>
-              <span class="font-semibold ${r._t === 'in' ? 'text-emerald-600' : 'text-rose-500'}">${r._t === 'in' ? '+' : '−'}${fmtMoney(r.amount)}</span>
+            <div class="flex items-center justify-between gap-2 py-1.5 border-b border-slate-50 group">
+              <span class="text-xs text-slate-400 min-w-0">${fmtDate(r._d)} ${r._t === 'in' ? '· ' + esc(METHODS.find((mt) => mt.value === r.method)?.label || r.method || '') : '· ' + esc(r.reason || 'hisobdan yechish')}${r.note ? `<span class="block text-slate-400 italic truncate">${esc(r.note)}</span>` : ''}</span>
+              <span class="flex items-center gap-1 shrink-0">
+                <span class="font-semibold ${r._t === 'in' ? 'text-emerald-600' : 'text-rose-500'}">${r._t === 'in' ? '+' : '−'}${fmtMoney(r.amount)}</span>
+                ${canPay() ? `<button data-fix="${r.id}" data-kind="${r._t}" title="Summani o'zgartirish" class="p-1 rounded hover:bg-blue-50 text-slate-300 hover:text-blue-600 transition">✏️</button>
+                <button data-rmrec="${r.id}" data-kind="${r._t}" title="O'chirish" class="p-1 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-600 transition">🗑</button>` : ''}
+              </span>
             </div>`).join('') || '<div class="text-xs text-slate-400">Hozircha yozuvlar yo\'q</div>'}
         </div>
       </div>
@@ -372,4 +376,31 @@ export async function openProfile(studentId, pageContainer) {
     await run(sb.from('payments').insert({ ...v, student_id: studentId }));
     toast("To'lov saqlandi"); refresh();
   };
+
+  // Yozuvni tuzatish: summa noto'g'ri kiritilgan bo'lsa o'zgartirish
+  $$('[data-fix]', m.body).forEach((b) => b.onclick = async () => {
+    const isPay = b.dataset.kind === 'in';
+    const rec = (isPay ? payments : charges).find((x) => x.id === b.dataset.fix);
+    if (!rec) return;
+    const v = await formModal(isPay ? "To'lovni tahrirlash" : 'Hisobni tahrirlash', isPay ? [
+      { name: 'amount', label: 'Summa', type: 'money', required: true, value: rec.amount },
+      { name: 'method', label: "To'lov usuli", type: 'select', options: METHODS, value: rec.method },
+      { name: 'paid_at', label: 'Sana', type: 'date', value: rec.paid_at },
+      { name: 'note', label: 'Izoh', type: 'textarea', full: true, value: rec.note },
+    ] : [
+      { name: 'amount', label: 'Summa', type: 'money', required: true, value: rec.amount },
+      { name: 'charged_at', label: 'Sana', type: 'date', value: rec.charged_at },
+      { name: 'reason', label: 'Sabab', full: true, value: rec.reason },
+    ]);
+    if (!v) return;
+    await run(sb.from(isPay ? 'payments' : 'charges').update(v).eq('id', rec.id));
+    toast('Saqlandi ✅'); refresh();
+  });
+
+  $$('[data-rmrec]', m.body).forEach((b) => b.onclick = async () => {
+    const isPay = b.dataset.kind === 'in';
+    if (!(await confirmDialog(isPay ? "Bu to'lov o'chiriladi. Davom etasizmi?" : 'Bu hisob yozuvi o\'chiriladi. Davom etasizmi?'))) return;
+    await run(sb.from(isPay ? 'payments' : 'charges').delete().eq('id', b.dataset.rmrec));
+    toast("O'chirildi"); refresh();
+  });
 }

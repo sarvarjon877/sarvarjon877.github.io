@@ -156,6 +156,7 @@ function renderLogin() {
   let selectedRole = null;
   let stage = 'input';   // 'input' | 'otp'
   let otpPhone = '';     // OTP yuborilgan raqam
+  let otpName = '';      // Raqam kimga tegishli — kod ekranida ko'rsatiladi
 
   $('#app').innerHTML = `
     <div class="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style="background:radial-gradient(125% 80% at 50% -10%, #2563eb 0%, #1e40af 38%, #0b1220 100%);">
@@ -205,6 +206,13 @@ function renderLogin() {
   });
 
   const otpField = (hint = '') => `
+    ${otpName ? `<div class="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+      <span class="text-lg">👋</span>
+      <div class="min-w-0">
+        <div class="text-[11px] text-emerald-600">Xush kelibsiz</div>
+        <div class="text-sm font-bold text-emerald-800 truncate">${esc(otpName)}</div>
+      </div>
+    </div>` : ''}
     <div>
       <label class="block text-xs font-semibold text-slate-500 mb-1.5">Tasdiqlash kodi</label>
       <input name="code" inputmode="numeric" autocomplete="one-time-code" required class="${inputCls} tracking-[0.25em] text-center text-lg font-bold" placeholder="________" maxlength="8">
@@ -257,10 +265,10 @@ function renderLogin() {
 
   function bindOtpArea() {
     const bb = $('#backBtn');
-    if (bb) bb.onclick = () => { stage = 'input'; drawAuth(); };
+    if (bb) bb.onclick = () => { stage = 'input'; otpName = ''; drawAuth(); };
   }
 
-  pickBtns.forEach((b) => b.onclick = () => { selectedRole = b.dataset.role; stage = 'input'; paintPick(); drawAuth(); });
+  pickBtns.forEach((b) => b.onclick = () => { selectedRole = b.dataset.role; stage = 'input'; otpName = ''; paintPick(); drawAuth(); });
   paintPick(); drawAuth();
 
   const showHintForTest = (res) => {
@@ -288,7 +296,7 @@ function renderLogin() {
         setBusy('Yuborilmoqda...');
         const res = await smsCall('send-otp', { phone: digits });
         if (!res?.ok) { toast(res?.message || 'Kod yuborilmadi', 'error'); unBusy('📩 Kod olish'); return; }
-        otpPhone = digits; stage = 'otp'; drawAuth(showHintForTest(res));
+        otpPhone = digits; otpName = res?.name || ''; stage = 'otp'; drawAuth(showHintForTest(res));
         return;
       }
       // stage otp
@@ -332,7 +340,7 @@ function renderLogin() {
       } catch { /* ignore */ }
       if (staffOtp && rolePhone.length === 9) {
         const res = await smsCall('send-otp', { phone: rolePhone });
-        if (res?.ok) { otpPhone = rolePhone; stage = 'otp'; drawAuth(showHintForTest(res)); return; }
+        if (res?.ok) { otpPhone = rolePhone; otpName = ''; stage = 'otp'; drawAuth(showHintForTest(res)); return; }
         // OTP yuborilmasa ham parol to'g'ri — kiritamiz (bloklab qo'ymaslik uchun)
       }
       boot();

@@ -68,6 +68,51 @@ const ACCOUNT_ROLES = {
 const STUDENT_EMAIL = 'oquvchi@finway.uz';
 const onlyDigits = (v) => String(v || '').replace(/\D/g, '');
 
+// --- Qurilma izi: onlayn o'quvchi faqat bitta qurilmadan kira oladi ---
+const DEVICE_KEY = 'finway_device_id';
+export function deviceId() {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^\w-]/g, '');
+    localStorage.setItem(DEVICE_KEY, id);
+  }
+  return id;
+}
+export function deviceName() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android telefon';
+  if (/Macintosh/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'Windows kompyuter';
+  return 'Boshqa qurilma';
+}
+const isOnlineStudent = (s) => s?.mode === 'onlayn' || s?.mode === 'aralash';
+
+/**
+ * Onlayn o'quvchi uchun kirish tekshiruvi: muddat va qurilma.
+ * Qaytaradi: { ok: true } yoki { ok: false, message }
+ */
+async function checkStudentAccess(st) {
+  if (!isOnlineStudent(st)) return { ok: true };
+  const bugun = new Date().toISOString().slice(0, 10);
+  if (st.access_until && st.access_until < bugun) {
+    return { ok: false, message: "⏳ Onlayn kirish muddatingiz tugagan. To'lovni yangilash uchun administrator bilan bog'laning." };
+  }
+  const dev = deviceId();
+  if (!st.device_id) {
+    // Birinchi kirish — shu qurilma biriktiriladi
+    try {
+      await run(sb.from('students').update({ device_id: dev, device_name: deviceName(), device_at: new Date().toISOString() }).eq('id', st.id));
+    } catch { /* yozilmasa ham kirishga to'sqinlik qilmaymiz */ }
+    return { ok: true };
+  }
+  if (st.device_id !== dev) {
+    return { ok: false, message: `📱 Bu hisob boshqa qurilmaga (${st.device_name || 'telefon'}) biriktirilgan. Yangi qurilmadan kirish uchun administratorga murojaat qiling.` };
+  }
+  return { ok: true };
+}
+
 let centerName = "O'quv Markazi";
 export let currentUser = { email: '', role: 'admin', name: 'Admin' };
 
@@ -306,10 +351,12 @@ function renderLogin() {
       if (!res?.ok || !res.session) { toast(res?.message || 'Kod noto\'g\'ri', 'error'); unBusy('Tasdiqlash'); return; }
       await sb.auth.setSession(res.session);
       try {
-        const students = await run(sb.from('students').select('id,first_name,last_name,phone,status,blocked').not('status', 'in', '(arxiv)'));
+        const students = await run(sb.from('students').select('id,first_name,last_name,phone,status,blocked,mode,access_until,device_id,device_name').not('status', 'in', '(arxiv)'));
         const match = students.find((s) => onlyDigits(s.phone).slice(-9) === otpPhone);
         if (!match) { toast('Bu raqam bilan o\'quvchi topilmadi. Administrator bilan bog\'laning.', 'error'); await sb.auth.signOut(); stage = 'input'; drawAuth(); return; }
         if (match.blocked) { toast('🔒 Akkauntingiz bloklangan. To\'lov muddati o\'tgan — administrator bilan bog\'laning.', 'error'); await sb.auth.signOut(); stage = 'input'; drawAuth(); return; }
+        const acc = await checkStudentAccess(match);
+        if (!acc.ok) { toast(acc.message, 'error'); await sb.auth.signOut(); stage = 'input'; drawAuth(); return; }
         localStorage.setItem('finway_student', JSON.stringify(match));
         await loadCenterName();
         renderStudentApp(match, centerName);
@@ -501,8 +548,34 @@ async function boot() {
     const saved = localStorage.getItem('finway_student');
     if (saved) {
       await loadCenterName();
-      try { renderStudentApp(JSON.parse(saved), centerName); return; }
-      catch { /* buzilgan bo'lsa — davom etamiz */ }
+      try {
+        const st = JSON.parse(saved);
+        // Muddat va qurilma qaytadan tekshiriladi (admin o'zgartirgan bo'lishi mumkin).
+        // Tarmoq ishlamasa tekshiruv o'tkazib yuboriladi — o'quvchini bekorga chiqarib yubormaslik uchun.
+        try {
+          const { data: fresh } = await sb.from('students')
+            .select('id,first_name,last_name,phone,status,blocked,mode,access_until,device_id,device_name')
+            .eq('id', st.id).maybeSingle();
+          if (fresh) {
+            if (fresh.blocked) throw new Error('🔒 Akkauntingiz bloklangan — administrator bilan bog\'laning.');
+            const acc = await checkStudentAccess(fresh);
+            if (!acc.ok) throw new Error(acc.message);
+            localStorage.setItem('finway_student', JSON.stringify(fresh));
+            renderStudentApp(fresh, centerName);
+            return;
+          }
+        } catch (err) {
+          if (err?.message && /🔒|📱|⏳/.test(err.message)) {
+            localStorage.removeItem('finway_student');
+            await sb.auth.signOut();
+            renderLogin();
+            setTimeout(() => toast(err.message, 'error'), 400);
+            return;
+          }
+        }
+        renderStudentApp(st, centerName);
+        return;
+      } catch { /* buzilgan bo'lsa — davom etamiz */ }
     }
     localStorage.removeItem('finway_student');
     await sb.auth.signOut();

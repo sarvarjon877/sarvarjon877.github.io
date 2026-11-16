@@ -84,8 +84,9 @@ export async function mountChat(el, opts) {
     if (scroll) box.scrollTop = box.scrollHeight;
   };
 
-  // Tarixni yuklash
-  let q = sb.from('messages').select('*').eq('group_id', groupId).eq('channel', channel).order('created_at');
+  // Tarixni yuklash. Onlayn o'quvchida guruh bo'lmaydi — group_id bo'sh qoladi.
+  let q = sb.from('messages').select('*').eq('channel', channel).order('created_at');
+  q = groupId ? q.eq('group_id', groupId) : q.is('group_id', null);
   if (channel === 'private') q = q.eq('student_id', studentId);
   const history = await run(q);
   box.innerHTML = '';
@@ -97,12 +98,14 @@ export async function mountChat(el, opts) {
   }
 
   // Jonli obuna (realtime)
-  activeChannel = sb.channel(`chat:${channel}:${groupId}:${studentId || 'all'}`)
+  activeChannel = sb.channel(`chat:${channel}:${groupId || 'onlayn'}:${studentId || 'all'}`)
     .on('postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'messages', filter: `group_id=eq.${groupId}` },
+      { event: 'INSERT', schema: 'public', table: 'messages',
+        filter: groupId ? `group_id=eq.${groupId}` : `student_id=eq.${studentId}` },
       (payload) => {
         const m = payload.new;
         if (m.channel !== channel) return;
+        if (!groupId && m.group_id) return;
         if (channel === 'private' && m.student_id !== studentId) return;
         append(m);
       })

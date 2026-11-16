@@ -4,14 +4,19 @@
 import { sb, run } from '../db.js';
 import { $, $$, esc, toast, modal, confirmDialog, emptyState, btnCls } from '../ui.js';
 import { currentUser } from '../app.js';
+import { uploadVideo, deleteVideo, mb, MAX_VIDEO_MB, TAVSIYA_MB } from '../video-store.js';
 
 const canManage = () => ['direktor', 'moliyachi', 'admin', 'oqituvchi'].includes(currentUser.role);
 const LS_KEY = 'finway_lib_course';
 
 // --- Video havolasini tahlil qilish (YouTube / Vimeo / oddiy havola) ---
-export function parseVideo(url) {
+export function parseVideo(url, lesson) {
   const u = String(url || '').trim();
   if (!u) return null;
+  // Bizga yuklangan video fayl
+  if (lesson?.video_provider === 'file' || /\.(mp4|webm|mov|m4v|m3u8)(\?|$)/i.test(u)) {
+    return { type: 'file', embed: null, url: u };
+  }
   let m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/);
   if (m) return { type: 'youtube', embed: `https://www.youtube.com/embed/${m[1]}`, url: u };
   m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/);
@@ -19,9 +24,14 @@ export function parseVideo(url) {
   return { type: 'link', embed: null, url: u };
 }
 
-export function videoBlock(url, dark = false) {
-  const v = parseVideo(url);
+export function videoBlock(url, dark = false, lesson = null) {
+  const v = parseVideo(url, lesson);
   if (!v) return '';
+  if (v.type === 'file') {
+    return `<div class="relative w-full rounded-xl overflow-hidden bg-black" style="aspect-ratio:16/9">
+      <video src="${esc(v.url)}" class="absolute inset-0 w-full h-full" controls playsinline preload="metadata" controlsList="nodownload"></video>
+    </div>`;
+  }
   if (v.embed) {
     return `<div class="relative w-full rounded-xl overflow-hidden bg-black" style="aspect-ratio:16/9">
       <iframe src="${esc(v.embed)}" class="absolute inset-0 w-full h-full" loading="lazy"
@@ -54,9 +64,22 @@ function lessonModal(module, lesson) {
           <input name="title" required value="${esc(L.title || '')}" class="${uploadInputCls}" placeholder="Masalan: 1-dars. Balans hisobi">
         </div>
         <div>
-          <label class="block text-xs font-semibold text-slate-500 mb-1.5">Video havolasi (YouTube / Vimeo)</label>
-          <input name="video_url" value="${esc(L.video_url || '')}" class="${uploadInputCls}" placeholder="https://youtu.be/... yoki https://youtube.com/watch?v=...">
-          <div class="mt-1.5 text-[11px] text-slate-400">Katta (4 soatlik) videoni YouTube'ga <b>Unlisted</b> qilib yuklab, havolasini shu yerga qo'ying. Bepul va cheksiz.</div>
+          <label class="block text-xs font-semibold text-slate-500 mb-1.5">🎬 Dars videosi</label>
+          ${L.video_url ? `<div class="flex items-center gap-2 mb-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            <span>${L.video_provider === 'file' ? '🎞' : '🔗'}</span>
+            <span class="truncate flex-1 text-slate-600">${L.video_provider === 'file' ? `Yuklangan video${L.video_size ? ` · ${mb(L.video_size)} MB` : ''}` : esc(L.video_url)}</span>
+            <label class="inline-flex items-center gap-1 text-rose-500 cursor-pointer shrink-0"><input type="checkbox" name="remove_video" class="accent-rose-500"> o'chirish</label>
+          </div>` : ''}
+          <input name="video" type="file" accept="video/*" class="${uploadInputCls} file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:text-xs file:font-semibold">
+          <div class="mt-1.5 text-[11px] text-slate-400">${L.video_url ? 'Yangi video tanlasangiz eskisini almashtiradi. ' : ''}Videoni shu yerga yuklang — o'quvchi uni faqat ilova ichida ko'radi. Maksimum ${MAX_VIDEO_MB} MB, ${TAVSIYA_MB} MB atrofida bo'lsa telefonda tez ochiladi.</div>
+          <div id="vidProg" class="hidden mt-2">
+            <div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="vidBar" class="h-full bg-blue-600 transition-all" style="width:0%"></div></div>
+            <div id="vidTxt" class="text-[11px] text-slate-500 mt-1">Yuklanmoqda...</div>
+          </div>
+          <details class="mt-2" ${L.video_url && L.video_provider !== 'file' ? 'open' : ''}>
+            <summary class="text-[11px] text-slate-400 cursor-pointer select-none">yoki tashqi havola qo'yish (YouTube / Vimeo)</summary>
+            <input name="video_url" value="${esc(L.video_provider === 'file' ? '' : (L.video_url || ''))}" class="${uploadInputCls} mt-1.5" placeholder="https://youtu.be/...">
+          </details>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -98,19 +121,54 @@ function lessonModal(module, lesson) {
       const row = {
         module_id: module.id,
         title,
-        video_url: String(fd.get('video_url') || '').trim() || null,
         description: String(fd.get('description') || '').trim() || null,
         duration_min: fd.get('duration_min') ? Number(fd.get('duration_min')) : null,
         sort_order: fd.get('sort_order') ? Number(fd.get('sort_order')) : (isEdit ? (L.sort_order || 0) : 0),
       };
+
+      // --- Video: yuklangan fayl yoki tashqi havola ---
+      const vidFile = fd.get('video');
+      const hasVideo = vidFile && vidFile.size > 0;
+      const linkUrl = String(fd.get('video_url') || '').trim();
+      const rmVideo = fd.get('remove_video') === 'on';
+      if (hasVideo && vidFile.size > MAX_VIDEO_MB * 1048576) {
+        return toast(`Video ${MAX_VIDEO_MB} MB dan katta (${mb(vidFile.size)} MB). Avval siqib oling.`, 'error');
+      }
+      if (!hasVideo) {
+        if (rmVideo) {
+          row.video_url = null; row.video_provider = null; row.video_path = null; row.video_size = null;
+        } else if (linkUrl) {
+          row.video_url = linkUrl;
+          row.video_provider = parseVideo(linkUrl)?.type || 'link';
+          row.video_path = null; row.video_size = null;
+        } else if (isEdit && L.video_provider !== 'file' && L.video_url) {
+          row.video_url = null; row.video_provider = null;   // havola maydoni tozalangan
+        }
+      }
 
       const file = fd.get('pdf');
       const hasNewFile = file && file.size > 0;
       if (hasNewFile && file.size > 52428800) return toast('Fayl 50 MB dan katta', 'error');
 
       submitBtn.disabled = true;
-      submitBtn.textContent = hasNewFile ? 'Yuklanmoqda...' : 'Saqlanmoqda...';
+      submitBtn.textContent = hasVideo ? 'Video yuklanmoqda...' : (hasNewFile ? 'Yuklanmoqda...' : 'Saqlanmoqda...');
       try {
+        if (hasVideo) {
+          const prog = $('#vidProg', m.body), bar = $('#vidBar', m.body), txt = $('#vidTxt', m.body);
+          prog.classList.remove('hidden');
+          const up = await uploadVideo(vidFile, {
+            folder: module.id,
+            onProgress: (p, loaded, total) => {
+              bar.style.width = `${p}%`;
+              txt.textContent = `${p}% · ${mb(loaded)} / ${mb(total)} MB`;
+            },
+          });
+          if (isEdit && L.video_path) await deleteVideo(L.video_path);
+          row.video_url = up.url; row.video_provider = 'file'; row.video_path = up.path; row.video_size = up.size;
+          txt.textContent = 'Video yuklandi ✅';
+        } else if (rmVideo && isEdit && L.video_path) {
+          await deleteVideo(L.video_path);
+        }
         if (hasNewFile) {
           const dot = file.name.lastIndexOf('.');
           const ext = dot >= 0 ? file.name.slice(dot + 1).toLowerCase() : 'pdf';
@@ -202,7 +260,7 @@ export function openPdf(url, name) {
 // --- Darsni ko'rish (preview) modali ---
 function viewLesson(lesson) {
   const m = modal(lesson.title, `
-    ${lesson.video_url ? videoBlock(lesson.video_url) : '<div class="text-sm text-slate-400 py-3">Video havolasi yo\'q</div>'}
+    ${lesson.video_url ? videoBlock(lesson.video_url, false, lesson) : '<div class="text-sm text-slate-400 py-3">Video qo\'yilmagan</div>'}
     ${lesson.duration_min ? `<div class="mt-3 text-xs text-slate-500">⏱ ${esc(fmtDur(lesson.duration_min))}</div>` : ''}
     ${lesson.description ? `<div class="mt-3 text-sm text-slate-600 whitespace-pre-wrap">${esc(lesson.description)}</div>` : ''}
     ${lesson.pdf_url ? `<button data-pdf class="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700">📄 ${esc(lesson.pdf_name || 'PDF / prezentatsiya')}</button>` : ''}
@@ -276,7 +334,7 @@ export async function render(container) {
                 </div>`).join('')}</div>`}
           </div>`;
         }).join('')}</div>`}
-      <p class="text-xs text-slate-400 mt-4">💡 O'quvchilar bu darslarni portalidagi «Darslik» bo'limida ko'radi (guruhi shu kursga tegishli bo'lsa).</p>`;
+      <p class="text-xs text-slate-400 mt-4">💡 O'quvchilar bu darslarni portalidagi «Darslik» bo'limida ko'radi — guruhi shu kursga tegishli bo'lsa yoki onlayn o'quvchiga shu kurs ochilgan bo'lsa.</p>`;
 
     // Kurs almashtirish
     $('#courseSel', container).onchange = (e) => { courseId = e.target.value; paint(); };
@@ -306,8 +364,9 @@ export async function render(container) {
       });
       $$('[data-dell]', container).forEach((b) => b.onclick = async () => {
         const l = lessons.find((x) => x.id === b.dataset.dell);
-        if (!(await confirmDialog(`«${l.title}» darsi o'chiriladi. Davom etasizmi?`))) return;
+        if (!(await confirmDialog(`«${l.title}» darsi o'chiriladi${l.video_path ? ' (video fayli ham)' : ''}. Davom etasizmi?`))) return;
         await run(sb.from('course_lessons').delete().eq('id', l.id));
+        if (l.video_path) await deleteVideo(l.video_path);
         toast("O'chirildi"); paint();
       });
     }

@@ -11,7 +11,7 @@ const ATT = {
   sababli: ['Sababli', '⚠️', 'text-amber-400'],
 };
 
-const TABS = [
+const ALL_TABS = [
   { id: 'home', label: 'Bosh', icon: '🏠' },
   { id: 'library', label: 'Darslik', icon: '📚' },
   { id: 'game', label: "O'yin", icon: '🎮' },
@@ -19,6 +19,8 @@ const TABS = [
   { id: 'chat', label: 'Chat', icon: '💬' },
   { id: 'profile', label: 'Profil', icon: '👤' },
 ];
+// Onlayn o'quvchida guruh bo'lmaydi — davomat ham bo'lmaydi
+const tabsFor = () => ALL_TABS.filter((t) => t.id !== 'attend' || S.groupId);
 
 // Darslik ichki bo'limlari
 const LIB_SUBS = [
@@ -62,19 +64,28 @@ function miniRing(pct, label, color) {
 }
 
 export async function renderStudentApp(student, centerName) {
-  S = { student, groups: [], groupId: null, tab: 'home', centerName: centerName || "O'quv markazi", coins: 0, libSub: 'darslar', chatSub: 'group' };
+  S = { student, groups: [], groupId: null, courses: [], courseId: null, tab: 'home', centerName: centerName || "O'quv markazi", coins: 0, libSub: 'darslar', chatSub: 'group' };
   S.me = { role: 'student', id: S.student.id, name: `${S.student.first_name} ${S.student.last_name || ''}`.trim() };
 
-  const [memberships, coinRow] = await Promise.all([
+  const [memberships, coinRow, myCourses] = await Promise.all([
     run(sb.from('group_students')
       .select('groups(id,name,course_id,teacher_id,room_id,days,start_time,end_time,is_online,lesson_link,price,courses(name),employees(first_name,last_name),rooms(name))')
       .eq('student_id', student.id).eq('status', 'aktiv')),
-    run(sb.from('students').select('coins,photo_url').eq('id', student.id).single()),
+    run(sb.from('students').select('coins,photo_url,mode').eq('id', student.id).single()),
+    run(sb.from('student_courses').select('course_id,access_until,courses(id,name)').eq('student_id', student.id)),
   ]);
   S.groups = memberships.map((m) => m.groups).filter(Boolean);
   S.groupId = S.groups[0]?.id || null;
   S.coins = Number(coinRow?.coins || 0);
   S.photo = coinRow?.photo_url || null;
+  S.mode = coinRow?.mode || student.mode || 'offline';
+  // Onlayn kurslar: muddati o'tmaganlari
+  const bugun = today();
+  S.courses = (myCourses || [])
+    .filter((c) => !c.access_until || c.access_until >= bugun)
+    .map((c) => c.courses)
+    .filter(Boolean);
+  S.courseId = S.courses[0]?.id || null;
 
   $('#app').innerHTML = `
     <div class="min-h-screen flex flex-col text-slate-100 max-w-lg mx-auto relative" style="background:radial-gradient(130% 55% at 50% -5%, #263568 0%, #131a35 45%, #0a0f22 100%); background-attachment:fixed;">
@@ -95,7 +106,7 @@ export async function renderStudentApp(student, centerName) {
       </header>
       <main id="sMain" class="flex-1 p-4 pb-28 fade-in relative z-10"></main>
       <nav class="fixed bottom-0 inset-x-0 max-w-lg mx-auto flex z-20 px-1.5 pt-1.5 pb-2 backdrop-blur-xl border-t border-white/5" style="background:linear-gradient(to top, rgba(10,15,34,.95), rgba(10,15,34,.7));">
-        ${TABS.map((t) => `
+        ${tabsFor().map((t) => `
           <button data-tab="${t.id}" class="flex-1 flex flex-col items-center gap-1 py-1.5 rounded-xl text-[9px] font-semibold text-slate-500 transition">
             <span class="text-[17px] leading-none">${t.icon}</span>${t.label}
           </button>`).join('')}
@@ -141,13 +152,15 @@ async function drawTab() {
   if (S.tab === 'game') return renderGame(main, S.student, setCoins);
   if (S.tab === 'profile') return drawProfile(main);
 
-  if (!S.groupId) {
+  if (!S.groupId && !S.courses.length) {
     main.innerHTML = card(`<div class="text-center py-8 text-slate-500 text-sm">
-      Siz hali biror guruhga qo'shilmagansiz.<br>Administrator bilan bog'laning.</div>`);
+      ${S.mode === 'onlayn' || S.mode === 'aralash'
+        ? "Sizga hali kurs ochilmagan.<br>Administrator bilan bog'laning."
+        : "Siz hali biror guruhga qo'shilmagansiz.<br>Administrator bilan bog'laning."}</div>`);
     return;
   }
 
-  if (S.tab === 'home') return drawHome(main);
+  if (S.tab === 'home') return S.groupId ? drawHome(main) : drawHomeOnline(main);
   if (S.tab === 'library') return drawLibrary(main);
   if (S.tab === 'attend') return drawAttend(main);
   if (S.tab === 'chat') return drawChat(main);
@@ -162,9 +175,120 @@ function groupSwitcher() {
   </select>`;
 }
 
+// Onlayn o'quvchida guruh emas, kurs tanlanadi
+function courseSwitcher() {
+  if (S.courses.length < 2) return '';
+  return `<select id="crsSw" class="w-full mb-3 border border-white/10 bg-white/5 text-slate-100 rounded-xl px-3 py-2.5 text-sm font-medium backdrop-blur">
+    ${S.courses.map((c) => `<option value="${c.id}" ${c.id === S.courseId ? 'selected' : ''} class="bg-slate-900">${esc(c.name)}</option>`).join('')}
+  </select>`;
+}
+
 function bindSwitcher() {
   const sw = $('#grpSw');
   if (sw) sw.onchange = (e) => { S.groupId = e.target.value; drawTab(); };
+  const cw = $('#crsSw');
+  if (cw) cw.onchange = (e) => { S.courseId = e.target.value; drawTab(); };
+}
+
+// Hozir ko'rilayotgan kursning id si (guruhdan yoki onlayn ro'yxatdan)
+function activeCourseId() {
+  if (S.groupId) return S.groups.find((x) => x.id === S.groupId)?.course_id || null;
+  return S.courseId;
+}
+
+// Kurs darslari + o'quvchining ko'rganlari
+async function loadCourseLessons(courseId) {
+  const modules = await run(sb.from('course_modules').select('*').eq('course_id', courseId).order('sort_order').order('created_at'));
+  const modIds = modules.map((m) => m.id);
+  const [lessons, progress] = await Promise.all([
+    modIds.length ? run(sb.from('course_lessons').select('*').in('module_id', modIds).order('sort_order').order('created_at')) : Promise.resolve([]),
+    run(sb.from('lesson_progress').select('lesson_id,completed').eq('student_id', S.student.id)),
+  ]);
+  const doneSet = new Set((progress || []).filter((p) => p.completed).map((p) => p.lesson_id));
+  return { modules, lessons, doneSet };
+}
+
+async function markLessonDone(lessonId) {
+  try {
+    await run(sb.from('lesson_progress').upsert(
+      { student_id: S.student.id, lesson_id: lessonId, completed: true, updated_at: new Date().toISOString() },
+      { onConflict: 'student_id,lesson_id' },
+    ));
+    return true;
+  } catch { return false; }
+}
+
+// --- Onlayn o'quvchi bosh sahifasi (guruh yo'q — kurs va darslik asosiy) ---
+async function drawHomeOnline(main) {
+  main.innerHTML = '<div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div>';
+  const courseId = activeCourseId();
+  const course = S.courses.find((c) => c.id === courseId);
+  const { modules, lessons, doneSet } = courseId ? await loadCourseLessons(courseId) : { modules: [], lessons: [], doneSet: new Set() };
+  const total = lessons.length;
+  const done = lessons.filter((l) => doneSet.has(l.id)).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const next = lessons.find((l) => !doneSet.has(l.id));
+  const totalMin = lessons.reduce((a, l) => a + (Number(l.duration_min) || 0), 0);
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'Xayrli tong' : hour < 18 ? 'Xayrli kun' : 'Xayrli kech';
+
+  main.innerHTML = `
+    ${courseSwitcher()}
+    <div class="relative overflow-hidden rounded-[26px] p-6 mb-4" style="background:linear-gradient(135deg,#4f46e5 0%,#6366f1 45%,#3b82f6 100%); box-shadow:0 22px 48px -20px rgba(79,70,229,.95);">
+      <div class="absolute right-0 -top-6 w-52 h-52" style="background:radial-gradient(circle at 65% 35%, rgba(255,255,255,.32), transparent 60%);"></div>
+      <div class="relative">
+        <div class="flex items-start justify-between">
+          <div class="min-w-0">
+            <div class="text-indigo-100 text-xs mb-0.5">${greet} 👋</div>
+            <div class="text-[26px] font-black leading-tight truncate">${esc(S.student.first_name || S.me.name)}!</div>
+          </div>
+          <div class="text-5xl leading-none shrink-0 ml-2">💻</div>
+        </div>
+        <div class="mt-3 inline-flex items-center gap-2 rounded-full bg-white/15 backdrop-blur px-3.5 py-1.5 text-xs font-semibold">${esc(course?.name || 'Onlayn kurs')}</div>
+        <div class="mt-4 flex items-center gap-4">
+          ${ring(pct, `<div class="text-base font-extrabold text-white">${pct}<span class="text-[9px]">%</span></div>`, '#ffffff', 72)}
+          <div class="text-sm">
+            <div class="font-bold text-white">${done} / ${total} dars</div>
+            <div class="text-indigo-100 text-xs mt-0.5">${total - done > 0 ? `${total - done} ta dars qoldi` : 'Barcha darslar ko\'rildi 🎉'}</div>
+            ${totalMin ? `<div class="text-indigo-200/80 text-[11px] mt-0.5">⏱ Jami ${esc(libDur(totalMin))}</div>` : ''}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${next ? `<button id="goNext" class="w-full mb-4 flex items-center gap-3 text-left px-4 py-3.5 rounded-2xl border border-indigo-400/30 bg-indigo-500/15 hover:bg-indigo-500/25 transition">
+      <span class="text-2xl shrink-0">▶️</span>
+      <span class="min-w-0 flex-1">
+        <span class="block text-[11px] text-indigo-300 font-semibold">${done ? 'Davom ettirish' : 'Birinchi darsni boshlash'}</span>
+        <span class="block text-sm font-bold text-white truncate">${esc(next.title)}</span>
+      </span>
+      <span class="text-indigo-300 shrink-0">›</span>
+    </button>` : ''}
+
+    <div class="mb-4">${card(`
+      <div class="flex items-center gap-2 mb-3"><span class="w-7 h-7 rounded-lg bg-blue-500/20 flex items-center justify-center text-sm">📚</span><span class="font-bold text-sm text-slate-100">Kurs tarkibi</span></div>
+      ${modules.length ? `<div class="space-y-2">
+        ${modules.map((mod) => {
+          const ls = lessons.filter((l) => l.module_id === mod.id);
+          const d = ls.filter((l) => doneSet.has(l.id)).length;
+          return `<div class="flex items-center justify-between gap-2">
+            <div class="text-sm text-slate-300 truncate">${esc(mod.title)}</div>
+            <div class="text-[11px] font-bold shrink-0 ${d === ls.length && ls.length ? 'text-emerald-400' : 'text-slate-500'}">${d}/${ls.length}</div>
+          </div>`;
+        }).join('')}
+      </div>` : '<div class="text-sm text-slate-500">Darslar hali qo\'shilmagan.</div>'}
+    `)}</div>
+
+    <div>${card(`
+      <div class="flex items-center gap-2 mb-2"><span class="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center text-sm">❓</span><span class="font-bold text-sm text-slate-100">Savolingiz bormi?</span></div>
+      <div class="text-xs text-slate-400 mb-3">Dars bo'yicha tushunmagan joyingizni o'qituvchiga yozing — javob beradi.</div>
+      <button id="goAsk" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm transition">💬 O'qituvchiga savol berish</button>
+    `)}</div>`;
+
+  bindSwitcher();
+  const nb = $('#goNext', main);
+  if (nb) nb.onclick = () => { S.openLessonId = next.id; S.tab = 'library'; S.libSub = 'darslar'; drawTab(); };
+  $('#goAsk', main).onclick = () => { S.tab = 'chat'; S.chatSub = 'private'; drawTab(); };
 }
 
 async function drawHome(main) {
@@ -282,7 +406,7 @@ async function drawHome(main) {
 async function drawProfile(main) {
   main.innerHTML = '<div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div>';
   const [me, pays] = await Promise.all([
-    run(sb.from('students').select('first_name,last_name,phone,photo_url,coins,deal_amount,due_date,blocked').eq('id', S.student.id).single()),
+    run(sb.from('students').select('first_name,last_name,phone,photo_url,coins,deal_amount,due_date,blocked,mode,access_until').eq('id', S.student.id).single()),
     run(sb.from('payments').select('amount').eq('student_id', S.student.id)),
   ]);
   const money = (n) => (Number(n) || 0).toLocaleString('ru-RU').replace(/,/g, ' ') + " so'm";
@@ -318,6 +442,14 @@ async function drawProfile(main) {
       <div class="text-2xl mb-1">🔒</div>
       <div class="font-bold text-rose-300 text-sm">Akkauntingiz bloklangan</div>
       <div class="text-xs text-rose-400/80 mt-1">To'lov muddati o'tib ketgan. Iltimos to'lovni amalga oshiring yoki administrator bilan bog'laning.</div>
+    </div>` : ''}
+
+    ${S.courses.length ? `<div class="rounded-2xl border border-indigo-500/25 bg-indigo-500/10 p-4 mb-3">
+      <div class="font-bold text-sm text-slate-100 mb-2">💻 Onlayn kurslarim</div>
+      <div class="space-y-1">
+        ${S.courses.map((c) => `<div class="text-sm text-slate-200">• ${esc(c.name)}</div>`).join('')}
+      </div>
+      ${me.access_until ? `<div class="text-xs text-indigo-200/80 mt-2">📅 Kirish muddati: <b>${fmtDate(me.access_until)}</b> gacha</div>` : ''}
     </div>` : ''}
 
     <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 mb-3">
@@ -377,9 +509,20 @@ async function drawProfile(main) {
 }
 
 // --- Darslik (video darslar kutubxonasi) ---
-function libVideoBlock(url) {
+export const isFileVideo = (url, lesson) =>
+  lesson?.video_provider === 'file' || /\.(mp4|webm|mov|m4v|m3u8)(\?|$)/i.test(String(url || ''));
+
+function libVideoBlock(url, lesson) {
   const u = String(url || '').trim();
   if (!u) return '';
+  // Bizning serverimizga yuklangan video — ilova ichidagi pleyer
+  if (isFileVideo(u, lesson)) {
+    return `<div class="relative w-full rounded-xl overflow-hidden bg-black mb-3" style="aspect-ratio:16/9">
+      <video id="lesVid" class="absolute inset-0 w-full h-full" controls playsinline preload="metadata"
+        controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false"
+        data-src="${esc(u)}"></video>
+    </div>`;
+  }
   let m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/);
   let embed = m ? `https://www.youtube.com/embed/${m[1]}` : null;
   if (!embed) { m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/); if (m) embed = `https://player.vimeo.com/video/${m[1]}`; }
@@ -406,11 +549,14 @@ function openPdfViewer(url, name) {
 }
 
 async function drawLibrary(main) {
+  // Sinf ishi va uy ishi guruhga bog'liq — onlayn o'quvchida faqat darslar bo'ladi
+  const subs = S.groupId ? LIB_SUBS : LIB_SUBS.filter((s) => s.id === 'darslar');
+  if (!S.groupId) S.libSub = 'darslar';
   main.innerHTML = `
-    ${groupSwitcher()}
-    <div class="flex gap-1 mb-3 p-1 rounded-2xl bg-white/[0.04] border border-white/10">
-      ${LIB_SUBS.map((s) => `<button data-libsub="${s.id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition ${S.libSub === s.id ? 'bg-indigo-500/30 text-white shadow' : 'text-slate-400'}"><span class="mr-0.5">${s.icon}</span>${s.label}</button>`).join('')}
-    </div>
+    ${S.groupId ? groupSwitcher() : courseSwitcher()}
+    ${subs.length > 1 ? `<div class="flex gap-1 mb-3 p-1 rounded-2xl bg-white/[0.04] border border-white/10">
+      ${subs.map((s) => `<button data-libsub="${s.id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition ${S.libSub === s.id ? 'bg-indigo-500/30 text-white shadow' : 'text-slate-400'}"><span class="mr-0.5">${s.icon}</span>${s.label}</button>`).join('')}
+    </div>` : ''}
     <div id="libBody"><div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div></div>`;
   bindSwitcher();
   $$('[data-libsub]', main).forEach((b) => b.onclick = () => { S.libSub = b.dataset.libsub; drawLibrary(main); });
@@ -422,39 +568,77 @@ async function drawLibrary(main) {
 
 // Darslik → Darslar (video darslar kutubxonasi)
 async function libDarslar(body, main) {
-  const g = S.groups.find((x) => x.id === S.groupId);
-  const courseId = g?.course_id;
-  if (!courseId) { body.innerHTML = card('<div class="text-center py-8 text-slate-500 text-sm">Bu guruhga kurs biriktirilmagan.</div>'); return; }
-  const modules = await run(sb.from('course_modules').select('*').eq('course_id', courseId).order('sort_order').order('created_at'));
-  const modIds = modules.map((m) => m.id);
-  const lessons = modIds.length
-    ? await run(sb.from('course_lessons').select('*').in('module_id', modIds).order('sort_order').order('created_at'))
-    : [];
+  const courseId = activeCourseId();
+  if (!courseId) {
+    body.innerHTML = card(`<div class="text-center py-8 text-slate-500 text-sm">${S.groupId ? 'Bu guruhga kurs biriktirilmagan.' : 'Sizga hali kurs ochilmagan.'}</div>`);
+    return;
+  }
+  const { modules, lessons, doneSet } = await loadCourseLessons(courseId);
 
-  const openLesson = (l) => {
+  const openLesson = async (l) => {
     main.scrollTop = 0;
+    const done = doneSet.has(l.id);
     main.innerHTML = `
       <button id="libBack" class="mb-3 text-sm text-slate-400 hover:text-slate-200 font-medium">← Orqaga</button>
       <div class="font-bold text-lg text-slate-100 mb-3">${esc(l.title)}</div>
-      ${l.video_url ? libVideoBlock(l.video_url) : card('<div class="text-sm text-slate-500 text-center py-6">Bu darsda video hali qo\'yilmagan.</div>')}
+      ${l.video_url ? libVideoBlock(l.video_url, l) : card('<div class="text-sm text-slate-500 text-center py-6">Bu darsda video hali qo\'yilmagan.</div>')}
       ${l.duration_min ? `<div class="text-xs text-slate-400 mb-2">⏱ ${esc(libDur(l.duration_min))}</div>` : ''}
       ${l.description ? `<div class="text-sm text-slate-300 whitespace-pre-wrap mb-3 leading-relaxed">${esc(l.description)}</div>` : ''}
-      ${l.pdf_url ? `<button id="libPdf" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-100 hover:bg-slate-700 text-sm font-semibold">📄 ${esc(l.pdf_name || 'Material (PDF)')}</button>` : ''}`;
+      ${l.pdf_url ? `<button id="libPdf" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-100 hover:bg-slate-700 text-sm font-semibold mb-3">📄 ${esc(l.pdf_name || 'Material (PDF)')}</button>` : ''}
+      <button id="libDone" class="w-full mt-2 py-3 rounded-xl text-sm font-bold transition ${done ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
+        ${done ? '✓ Bu darsni ko\'rgansiz' : '✓ Darsni tugatdim'}
+      </button>`;
     $('#libBack', main).onclick = () => drawLibrary(main);
     const pdfBtn = $('#libPdf', main);
     if (pdfBtn) pdfBtn.onclick = () => openPdfViewer(l.pdf_url, l.pdf_name);
+
+    // Belgini joyida yangilaymiz — videoni qaytadan yuklamaslik uchun
+    const paintDone = () => {
+      const b = $('#libDone', main);
+      if (!b) return;
+      const d = doneSet.has(l.id);
+      b.className = `w-full mt-2 py-3 rounded-xl text-sm font-bold transition ${d ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`;
+      b.textContent = d ? "✓ Bu darsni ko'rgansiz" : '✓ Darsni tugatdim';
+    };
+
+    // Video pleyer (fayl): HLS bo'lsa kutubxonani yuklaymiz, tugaganda avtomatik belgilanadi
+    const vid = $('#lesVid', main);
+    if (vid) {
+      const src = vid.dataset.src;
+      if (/\.m3u8(\?|$)/i.test(src) && !vid.canPlayType('application/vnd.apple.mpegurl')) {
+        try {
+          const { default: Hls } = await import('https://esm.sh/hls.js@1.5.17');
+          if (Hls.isSupported()) { const h = new Hls(); h.loadSource(src); h.attachMedia(vid); }
+          else vid.src = src;
+        } catch { vid.src = src; }
+      } else {
+        vid.src = src;
+      }
+      vid.onended = async () => {
+        if (!doneSet.has(l.id) && await markLessonDone(l.id)) { doneSet.add(l.id); paintDone(); }
+      };
+    }
+
+    $('#libDone', main).onclick = async () => {
+      if (doneSet.has(l.id)) return;
+      if (await markLessonDone(l.id)) { doneSet.add(l.id); paintDone(); toast('Dars belgilandi ✅'); }
+    };
   };
 
   body.innerHTML = modules.length === 0
     ? card('<div class="text-center py-8 text-slate-500 text-sm">Bu kurs uchun darslar hali qo\'shilmagan.</div>')
     : `<div class="space-y-3">${modules.map((mod) => {
         const ls = lessons.filter((l) => l.module_id === mod.id);
+        const d = ls.filter((l) => doneSet.has(l.id)).length;
         return card(`
-          <div class="font-bold text-slate-100 mb-0.5">${esc(mod.title)}</div>
+          <div class="flex items-center justify-between gap-2 mb-0.5">
+            <div class="font-bold text-slate-100 truncate">${esc(mod.title)}</div>
+            ${ls.length ? `<div class="text-[11px] font-bold shrink-0 ${d === ls.length ? 'text-emerald-400' : 'text-slate-500'}">${d}/${ls.length}</div>` : ''}
+          </div>
           ${mod.description ? `<div class="text-xs text-slate-500 mb-2">${esc(mod.description)}</div>` : '<div class="mb-2"></div>'}
           ${ls.length === 0 ? '<div class="text-xs text-slate-600">Dars yo\'q</div>' : `<div class="space-y-1.5">
-            ${ls.map((l) => `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-800 transition">
-              <span class="text-lg shrink-0">${l.video_url ? '🎬' : '📄'}</span>
+            ${ls.map((l) => `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border ${doneSet.has(l.id) ? 'border-emerald-700/50' : 'border-slate-800'} transition">
+              <span class="text-lg shrink-0">${doneSet.has(l.id) ? '✅' : (l.video_url ? '🎬' : '📄')}</span>
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-semibold text-slate-100 truncate">${esc(l.title)}</span>
                 ${l.duration_min ? `<span class="block text-[11px] text-slate-500">⏱ ${esc(libDur(l.duration_min))}</span>` : ''}
@@ -468,6 +652,13 @@ async function libDarslar(body, main) {
     const l = lessons.find((x) => x.id === b.dataset.lesson);
     if (l) openLesson(l);
   });
+
+  // Bosh sahifadagi "Davom ettirish" tugmasidan kelgan bo'lsa — o'sha darsni ochamiz
+  if (S.openLessonId) {
+    const l = lessons.find((x) => x.id === S.openLessonId);
+    S.openLessonId = null;
+    if (l) openLesson(l);
+  }
 }
 
 // Darslik → Sinf ishi (testlar)
@@ -639,11 +830,14 @@ function stat(label, val, cls) {
 
 async function drawChat(main) {
   closeChat();
+  // Guruh chati faqat guruhdagilar uchun; onlayn o'quvchida o'qituvchiga savol qoladi
+  const subs = S.groupId ? CHAT_SUBS : CHAT_SUBS.filter((s) => s.id === 'private');
+  if (!S.groupId) S.chatSub = 'private';
   main.innerHTML = `
-    ${groupSwitcher()}
-    <div class="flex gap-1 mb-3 p-1 rounded-2xl bg-white/[0.04] border border-white/10">
-      ${CHAT_SUBS.map((s) => `<button data-chatsub="${s.id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition ${S.chatSub === s.id ? 'bg-indigo-500/30 text-white shadow' : 'text-slate-400'}"><span class="mr-0.5">${s.icon}</span>${s.label}</button>`).join('')}
-    </div>
+    ${S.groupId ? groupSwitcher() : ''}
+    ${subs.length > 1 ? `<div class="flex gap-1 mb-3 p-1 rounded-2xl bg-white/[0.04] border border-white/10">
+      ${subs.map((s) => `<button data-chatsub="${s.id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition ${S.chatSub === s.id ? 'bg-indigo-500/30 text-white shadow' : 'text-slate-400'}"><span class="mr-0.5">${s.icon}</span>${s.label}</button>`).join('')}
+    </div>` : ''}
     <div id="chatWrap"></div>`;
   bindSwitcher();
   $$('[data-chatsub]', main).forEach((b) => b.onclick = () => { S.chatSub = b.dataset.chatsub; drawChat(main); });

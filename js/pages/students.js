@@ -18,6 +18,19 @@ export const STATUS_LABELS = {
   arxiv: ['Arxiv', 'bg-slate-100 text-slate-500'],
 };
 
+// Ta'lim turi: offline — markazda, onlayn — faqat darsliklar orqali, aralash — ikkalasi
+export const MODE_LABELS = {
+  offline: ['Offline', 'bg-slate-100 text-slate-600'],
+  onlayn: ['💻 Onlayn', 'bg-indigo-50 text-indigo-700'],
+  aralash: ['Aralash', 'bg-teal-50 text-teal-700'],
+};
+const MODE_OPTIONS = [
+  { value: 'offline', label: 'Offline — markazda o\'qiydi' },
+  { value: 'onlayn', label: 'Onlayn — darsliklarni o\'zi ko\'radi' },
+  { value: 'aralash', label: 'Aralash — ham markazda, ham onlayn' },
+];
+const isOnline = (s) => s.mode === 'onlayn' || s.mode === 'aralash';
+
 const METHODS = [
   { value: 'naqd', label: 'Naqd' }, { value: 'karta', label: 'Karta' },
   { value: 'click', label: 'Click' }, { value: 'payme', label: 'Payme' }, { value: 'otkazma', label: "O'tkazma" },
@@ -31,6 +44,7 @@ const studentFields = (initial = {}, groupOptions = []) => [
   { name: 'gender', label: 'Jinsi', type: 'select', placeholder: 'Tanlang', options: [{ value: 'erkak', label: 'Erkak' }, { value: 'ayol', label: 'Ayol' }], value: initial.gender },
   { name: 'birth_date', label: "Tug'ilgan sana", type: 'date', value: initial.birth_date },
   { name: 'status', label: 'Holati', type: 'select', options: Object.entries(STATUS_LABELS).map(([v, [l]]) => ({ value: v, label: l })), value: initial.status || 'yangi' },
+  { name: 'mode', label: "Ta'lim turi", type: 'select', options: MODE_OPTIONS, value: initial.mode || 'offline' },
   ...(showMoney() ? [{ name: 'deal_amount', label: 'Kelishuv summasi (umumiy)', type: 'money', value: initial.deal_amount ?? 0 },
     { name: 'due_date', label: "Keyingi to'lov kuni", type: 'date', value: initial.due_date }] : []),
   { name: 'group_id', label: "Qaysi guruhga qo'shiladi", type: 'select', placeholder: 'Tanlang (ixtiyoriy)', options: groupOptions },
@@ -53,6 +67,7 @@ export async function render(container) {
 
   const tabs = [
     ['all', `Barchasi (${students.length})`],
+    ['onlayn', `💻 Onlayn (${students.filter(isOnline).length})`],
     ...Object.entries(STATUS_LABELS).map(([v, [l]]) => [v, `${l} (${students.filter((s) => s.status === v).length})`]),
     ...(showMoney() ? [['qarzdor', `Qarzdorlar (${students.filter((s) => remOf(s.id) > 0).length})`]] : []),
   ];
@@ -85,6 +100,7 @@ export async function render(container) {
   const draw = () => {
     let list = students;
     if (state.tab === 'qarzdor') list = list.filter((s) => remOf(s.id) > 0);
+    else if (state.tab === 'onlayn') list = list.filter(isOnline);
     else if (state.tab !== 'all') list = list.filter((s) => s.status === state.tab);
     if (state.search) {
       const q = state.search.toLowerCase();
@@ -95,7 +111,8 @@ export async function render(container) {
       const rem = remOf(s.id);
       const [lbl, cls] = STATUS_LABELS[s.status] || [s.status, 'bg-slate-100'];
       return `<tr class="border-b border-slate-50 hover:bg-slate-50/60 cursor-pointer" data-open="${s.id}">
-        <td class="px-5 py-3 font-semibold">${esc(s.first_name)} ${esc(s.last_name)}</td>
+        <td class="px-5 py-3 font-semibold">${esc(s.first_name)} ${esc(s.last_name)}
+          ${isOnline(s) ? `<span class="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded ${MODE_LABELS[s.mode][1]}">${MODE_LABELS[s.mode][0]}</span>` : ''}</td>
         <td class="px-4 py-3 text-slate-500">${esc(s.phone || '—')}</td>
         <td class="px-4 py-3"><span class="text-xs font-semibold px-2.5 py-1 rounded-lg ${cls}">${lbl}</span></td>
         ${showMoney() ? `<td class="px-4 py-3 font-semibold ${rem > 0 ? 'text-rose-600' : 'text-emerald-600'}">${rem > 0 ? fmtMoney(rem) : '<span class="text-emerald-600">To\'liq to\'langan</span>'}</td>` : ''}
@@ -174,7 +191,7 @@ export async function render(container) {
 }
 
 export async function openProfile(studentId, pageContainer) {
-  const [s, bal, memberships, payments, charges, groups, tgSettings, att] = await Promise.all([
+  const [s, bal, memberships, payments, charges, groups, tgSettings, att, myCourses, allCourses] = await Promise.all([
     run(sb.from('students').select('*').eq('id', studentId).single()),
     run(sb.from('student_balances').select('*').eq('student_id', studentId).single()),
     run(sb.from('group_students').select('*, groups(id,name,price)').eq('student_id', studentId).eq('status', 'aktiv')),
@@ -183,6 +200,8 @@ export async function openProfile(studentId, pageContainer) {
     run(sb.from('groups').select('id,name').eq('status', 'aktiv').order('name')),
     run(sb.from('settings').select('telegram_bot').single()),
     run(sb.from('student_attendance_risk').select('*').eq('student_id', studentId).maybeSingle()),
+    run(sb.from('student_courses').select('*, courses(id,name)').eq('student_id', studentId)),
+    run(sb.from('courses').select('id,name').order('name')),
   ]);
   const tgBot = tgSettings?.telegram_bot || '';
   const deal = Number(bal?.deal_amount || 0);
@@ -275,6 +294,28 @@ export async function openProfile(studentId, pageContainer) {
             <button id="joinBtn" class="text-sm px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium">Qo'shish</button>
           </div>` : ''}
         </div>
+        ${isOnline(s) ? `
+        <div class="pt-2 mt-2 border-t border-slate-100">
+          <div class="font-bold mb-1.5">💻 Onlayn kurslari</div>
+          ${myCourses.length ? myCourses.map((c) => `
+            <div class="flex items-center justify-between py-1.5 border-b border-slate-50 text-sm">
+              <span>${esc(c.courses?.name || '—')}${c.access_until ? `<span class="text-xs text-slate-400"> · ${fmtDate(c.access_until)} gacha</span>` : ''}</span>
+              ${canEdit() ? `<button data-crm="${c.id}" class="text-xs text-rose-500 hover:underline">olib tashlash</button>` : ''}
+            </div>`).join('') : '<div class="text-xs text-amber-600">⚠️ Kurs biriktirilmagan — o\'quvchi darslik ko\'ra olmaydi</div>'}
+          ${canEdit() ? `<div class="flex gap-2 mt-2">
+            <select id="crsSel" class="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-sm">
+              <option value="">Kurs tanlang...</option>
+              ${allCourses.filter((c) => !myCourses.some((mc) => mc.course_id === c.id)).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+            </select>
+            <button id="crsAdd" class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium">Berish</button>
+          </div>` : ''}
+          <div class="mt-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5">
+            <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">📱 Qurilma — faqat 1 ta</div>
+            <div class="text-xs text-slate-600 mt-0.5">${s.device_id ? `${esc(s.device_name || 'Qurilma')}${s.device_at ? ' · ' + fmtDate(s.device_at) : ''}` : 'Hali hech qanday qurilmadan kirmagan'}</div>
+            ${canEdit() && s.device_id ? `<button id="devReset" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 font-medium mt-1.5">🔄 Qurilmani tozalash — yangi telefondan kira olsin</button>` : ''}
+          </div>
+          ${canEdit() ? `<button id="accBtn" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium mt-2">📅 Kirish muddati${s.access_until ? ': ' + fmtDate(s.access_until) : ' — cheklanmagan'}</button>` : ''}
+        </div>` : ''}
       </div>
       <div class="text-sm ${showMoney() ? '' : 'hidden'}">
         <div class="flex items-center justify-between mb-1.5">
@@ -334,6 +375,34 @@ export async function openProfile(studentId, pageContainer) {
     await run(sb.from('students').update(patch).eq('id', studentId));
     toast(to === 'muzlatilgan' ? 'Muzlatildi' : 'Holat yangilandi'); m.close(); render(pageContainer);
   });
+  // --- Onlayn: kurs biriktirish, kirish muddati, qurilma ---
+  if ($('#crsAdd', m.body)) $('#crsAdd', m.body).onclick = async () => {
+    const cid = $('#crsSel', m.body).value;
+    if (!cid) return;
+    await run(sb.from('student_courses').insert({ student_id: studentId, course_id: cid, access_until: s.access_until || null }));
+    toast('Kurs ochildi — o\'quvchi darsliklarni ko\'ra oladi'); refresh();
+  };
+  $$('[data-crm]', m.body).forEach((b) => b.onclick = async () => {
+    if (!(await confirmDialog("Kurs olib tashlanadi — o'quvchi bu kurs darsliklarini ko'ra olmaydi. Davom etasizmi?"))) return;
+    await run(sb.from('student_courses').delete().eq('id', b.dataset.crm));
+    toast('Olib tashlandi'); refresh();
+  });
+  if ($('#devReset', m.body)) $('#devReset', m.body).onclick = async () => {
+    if (!(await confirmDialog('Qurilma tozalansinmi? Shundan keyin o\'quvchi istalgan bitta yangi telefondan kira oladi.'))) return;
+    await run(sb.from('students').update({ device_id: null, device_name: null, device_at: null }).eq('id', studentId));
+    toast('Qurilma tozalandi'); refresh();
+  };
+  if ($('#accBtn', m.body)) $('#accBtn', m.body).onclick = async () => {
+    const v = await formModal('Onlayn kirish muddati', [
+      { name: 'access_until', label: 'Qaysi sanagacha ochiq (bo\'sh qoldirsangiz — cheklanmagan)', type: 'date', value: s.access_until, full: true },
+    ]);
+    if (!v) return;
+    const until = v.access_until || null;
+    await run(sb.from('students').update({ access_until: until }).eq('id', studentId));
+    await run(sb.from('student_courses').update({ access_until: until }).eq('student_id', studentId));
+    toast(until ? `Muddat: ${fmtDate(until)}` : 'Muddat olib tashlandi'); refresh();
+  };
+
   if ($('#joinBtn', m.body)) $('#joinBtn', m.body).onclick = async () => {
     const gid = $('#grpSel', m.body).value;
     if (!gid) return;

@@ -1,6 +1,6 @@
 // Finway Academy — service worker (PWA / TWA uchun minimal).
 // Ilova dinamik (Supabase), shuning uchun tarmoq-birinchi; oflayn bo'lsa keshdan.
-const CACHE = 'finway-shell-v7';
+const CACHE = 'finway-shell-v8';
 const SHELL = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', (e) => {

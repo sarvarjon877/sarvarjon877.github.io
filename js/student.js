@@ -524,9 +524,14 @@ function libVideoBlock(lesson) {
   const u = String(lesson?.video_url || '').trim();
   // Bizga yuklangan video — ilova ichidagi pleyer. Havolasi keyin qo'yiladi.
   if (lesson?.video_path || isFileVideo(u, lesson)) {
+    // Suv belgisi: o'quvchining ismi va raqami video ustida ko'rinib turadi.
+    // Yozib olishni to'xtatmaydi, lekin yozuv tarqalsa kim yozganini bilish mumkin.
+    const belgi = `${S.me?.name || ''} · ${String(S.student?.phone || '').slice(-7)}`.trim();
     return `<div class="relative w-full rounded-xl overflow-hidden bg-black mb-3" style="aspect-ratio:16/9">
       <video id="lesVid" class="absolute inset-0 w-full h-full" controls playsinline preload="metadata"
         controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false"></video>
+      <div id="vidMark" class="absolute pointer-events-none select-none font-semibold"
+        style="left:8%; top:10%; font-size:11px; color:rgba(255,255,255,.3); text-shadow:0 1px 3px rgba(0,0,0,.75); transition:left 1.2s ease, top 1.2s ease;">${esc(belgi)}</div>
     </div>`;
   }
   if (!u) return '';
@@ -600,6 +605,18 @@ async function libDarslar(body, main) {
       b.className = `w-full mt-2 py-3 rounded-xl text-sm font-bold transition ${d ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`;
       b.textContent = d ? "✓ Bu darsni ko'rgansiz" : '✓ Darsni tugatdim';
     };
+
+    // Suv belgisi joyini vaqti-vaqti bilan ko'chiramiz — kesib tashlash qiyin bo'lsin
+    const mark = $('#vidMark', main);
+    if (mark) {
+      const kochir = () => {
+        if (!mark.isConnected) return clearInterval(markTimer);
+        mark.style.left = `${6 + Math.random() * 55}%`;
+        mark.style.top = `${8 + Math.random() * 76}%`;
+      };
+      var markTimer = setInterval(kochir, 14000);
+      setTimeout(kochir, 4000);
+    }
 
     // Video pleyer (fayl): HLS bo'lsa kutubxonani yuklaymiz, tugaganda avtomatik belgilanadi
     const vid = $('#lesVid', main);

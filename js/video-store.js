@@ -1,21 +1,23 @@
-// Dars videolarini saqlash joyi.
+// Dars videolarini saqlash — Cloudflare R2.
 //
-// Hozir: Supabase Storage ('darslar' bucket).
-// Keyin Cloudflare R2 yoki o'z serverimizga o'tsak — FAQAT shu fayl o'zgaradi,
-// qolgan kod (lessons.js, student.js) o'zgarishsiz qoladi.
+// Bucket yopiq turadi. Brauzer R2 kalitlarini KO'RMAYDI: yuklash va ko'rish uchun
+// vaqtincha imzolangan havolani "r2" edge funksiyasi beradi (kalitlar o'sha yerda).
+//
+// Eski (Supabase Storage'dagi) videolar ham ishlayveradi — ular video_url da
+// to'liq havola bilan saqlangan.
 import { sb } from './db.js';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
-export const VIDEO_BUCKET = 'darslar';
-export const MAX_VIDEO_MB = 1024;          // bitta video uchun chegara
-export const TAVSIYA_MB = 250;             // bundan kattasi uchun ogohlantiramiz
+export const MAX_VIDEO_MB = 2048;   // R2 da amalda chegara yo'q; ehtiyot uchun
+export const TAVSIYA_MB = 400;      // bundan kattasida ogohlantiramiz
 
 export const mb = (bytes) => Math.round((Number(bytes) || 0) / 1048576);
 
-export function videoPublicUrl(path) {
-  if (!path) return null;
-  if (/^https?:\/\//i.test(path)) return path;     // allaqachon to'liq havola
-  return `${SUPABASE_URL}/storage/v1/object/public/${VIDEO_BUCKET}/${path}`;
+/** r2 edge funksiyasini chaqiradi. */
+async function r2(action, payload = {}) {
+  const { data, error } = await sb.functions.invoke('r2', { body: { action, ...payload } });
+  if (error) throw new Error(error.message || 'R2 bilan bog\'lanib bo\'lmadi');
+  if (!data?.ok) throw new Error(data?.message || 'R2 xatosi');
+  return data;
 }
 
 const safeExt = (name) => {
@@ -24,37 +26,46 @@ const safeExt = (name) => {
   return ext || 'mp4';
 };
 
+/** Dars videosi fayl ko'rinishidami (R2, eski Supabase fayli yoki to'g'ridan-to'g'ri havola). */
+export const isFileVideo = (url, lesson) =>
+  lesson?.video_provider === 'r2' ||
+  lesson?.video_provider === 'file' ||
+  /\.(mp4|webm|mov|m4v|m3u8)(\?|$)/i.test(String(url || ''));
+
 /**
- * Videoni yuklaydi. Yuklanish foizi onProgress orqali qaytadi.
- * @returns {Promise<{path:string, url:string, size:number}>}
+ * Darsni ko'rish uchun havola. R2 dagi video uchun vaqtincha (bir necha soatlik)
+ * havola so'raydi; eski videolar uchun saqlangan havolani qaytaradi.
+ */
+export async function resolveVideoUrl(lesson) {
+  if (!lesson) return null;
+  if (lesson.video_provider === 'r2' && lesson.video_path) {
+    const res = await r2('play-url', { key: lesson.video_path });
+    return res.url;
+  }
+  return lesson.video_url || null;
+}
+
+/**
+ * Videoni R2 ga yuklaydi. Yuklanish foizi onProgress orqali qaytadi.
+ * @returns {Promise<{path:string, size:number}>}
  */
 export async function uploadVideo(file, { folder = 'umumiy', onProgress } = {}) {
-  const path = `${folder}/${(crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w-]/g, '')}.${safeExt(file.name)}`;
-  let token = SUPABASE_KEY;
-  try {
-    const { data } = await sb.auth.getSession();
-    if (data?.session?.access_token) token = data.session.access_token;
-  } catch { /* anon kalit bilan urinib ko'ramiz */ }
+  const safeFolder = String(folder).replace(/[^\w-]/g, '_');
+  const name = (crypto.randomUUID?.() || `${Date.now()}${Math.random()}`).replace(/[^\w-]/g, '');
+  const key = `${safeFolder}/${name}.${safeExt(file.name)}`;
+
+  const { url } = await r2('upload-url', { key });
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${SUPABASE_URL}/storage/v1/object/${VIDEO_BUCKET}/${path}`);
-    xhr.setRequestHeader('authorization', `Bearer ${token}`);
-    xhr.setRequestHeader('apikey', SUPABASE_KEY);
-    xhr.setRequestHeader('x-upsert', 'true');
+    xhr.open('PUT', url);
     xhr.setRequestHeader('content-type', file.type || 'video/mp4');
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve({ path, url: videoPublicUrl(path), size: file.size });
-      } else {
-        let msg = `Yuklanmadi (${xhr.status})`;
-        try { msg = JSON.parse(xhr.responseText)?.message || msg; } catch { /* matn emas */ }
-        if (xhr.status === 413) msg = 'Fayl juda katta — saqlagich qabul qilmadi';
-        reject(new Error(msg));
-      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve({ path: key, size: file.size });
+      else reject(new Error(`Yuklanmadi (${xhr.status})`));
     };
     xhr.onerror = () => reject(new Error('Tarmoq xatosi — internetni tekshiring'));
     xhr.onabort = () => reject(new Error('Bekor qilindi'));
@@ -63,7 +74,11 @@ export async function uploadVideo(file, { folder = 'umumiy', onProgress } = {}) 
   });
 }
 
-export async function deleteVideo(path) {
-  if (!path || /^https?:\/\//i.test(path)) return;
-  try { await sb.storage.from(VIDEO_BUCKET).remove([path]); } catch { /* o'chmasa ham davom etamiz */ }
+/** Videoni o'chiradi. Eski Supabase fayllari ham hisobga olinadi. */
+export async function deleteVideo(path, provider) {
+  if (!path) return;
+  try {
+    if (provider === 'r2') await r2('delete', { key: path });
+    else await sb.storage.from('darslar').remove([path]);
+  } catch { /* o'chmasa ham davom etamiz */ }
 }

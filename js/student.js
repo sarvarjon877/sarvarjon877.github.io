@@ -4,6 +4,7 @@ import { sb, run } from './db.js';
 import { $, $$, esc, fmtDate, fmtDays, fmtTime, toast, today, formModal, modal, confirmDialog } from './ui.js';
 import { mountChat, closeChat } from './chat.js';
 import { renderGame } from './game.js';
+import { isFileVideo, resolveVideoUrl } from './video-store.js';
 
 const ATT = {
   keldi: ['Keldi', '✅', 'text-emerald-400'],
@@ -509,20 +510,19 @@ async function drawProfile(main) {
 }
 
 // --- Darslik (video darslar kutubxonasi) ---
-export const isFileVideo = (url, lesson) =>
-  lesson?.video_provider === 'file' || /\.(mp4|webm|mov|m4v|m3u8)(\?|$)/i.test(String(url || ''));
+// Darsda video bormi (R2 dagi fayl yoki tashqi havola)
+const hasVideo = (l) => !!(l?.video_url || l?.video_path);
 
-function libVideoBlock(url, lesson) {
-  const u = String(url || '').trim();
-  if (!u) return '';
-  // Bizning serverimizga yuklangan video — ilova ichidagi pleyer
-  if (isFileVideo(u, lesson)) {
+function libVideoBlock(lesson) {
+  const u = String(lesson?.video_url || '').trim();
+  // Bizga yuklangan video — ilova ichidagi pleyer. Havolasi keyin qo'yiladi.
+  if (lesson?.video_path || isFileVideo(u, lesson)) {
     return `<div class="relative w-full rounded-xl overflow-hidden bg-black mb-3" style="aspect-ratio:16/9">
       <video id="lesVid" class="absolute inset-0 w-full h-full" controls playsinline preload="metadata"
-        controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false"
-        data-src="${esc(u)}"></video>
+        controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false"></video>
     </div>`;
   }
+  if (!u) return '';
   let m = u.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/);
   let embed = m ? `https://www.youtube.com/embed/${m[1]}` : null;
   if (!embed) { m = u.match(/vimeo\.com\/(?:video\/)?(\d+)/); if (m) embed = `https://player.vimeo.com/video/${m[1]}`; }
@@ -581,7 +581,7 @@ async function libDarslar(body, main) {
     main.innerHTML = `
       <button id="libBack" class="mb-3 text-sm text-slate-400 hover:text-slate-200 font-medium">← Orqaga</button>
       <div class="font-bold text-lg text-slate-100 mb-3">${esc(l.title)}</div>
-      ${l.video_url ? libVideoBlock(l.video_url, l) : card('<div class="text-sm text-slate-500 text-center py-6">Bu darsda video hali qo\'yilmagan.</div>')}
+      ${hasVideo(l) ? libVideoBlock(l) : card('<div class="text-sm text-slate-500 text-center py-6">Bu darsda video hali qo\'yilmagan.</div>')}
       ${l.duration_min ? `<div class="text-xs text-slate-400 mb-2">⏱ ${esc(libDur(l.duration_min))}</div>` : ''}
       ${l.description ? `<div class="text-sm text-slate-300 whitespace-pre-wrap mb-3 leading-relaxed">${esc(l.description)}</div>` : ''}
       ${l.pdf_url ? `<button id="libPdf" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-100 hover:bg-slate-700 text-sm font-semibold mb-3">📄 ${esc(l.pdf_name || 'Material (PDF)')}</button>` : ''}
@@ -604,15 +604,22 @@ async function libDarslar(body, main) {
     // Video pleyer (fayl): HLS bo'lsa kutubxonani yuklaymiz, tugaganda avtomatik belgilanadi
     const vid = $('#lesVid', main);
     if (vid) {
-      const src = vid.dataset.src;
-      if (/\.m3u8(\?|$)/i.test(src) && !vid.canPlayType('application/vnd.apple.mpegurl')) {
-        try {
-          const { default: Hls } = await import('https://esm.sh/hls.js@1.5.17');
-          if (Hls.isSupported()) { const h = new Hls(); h.loadSource(src); h.attachMedia(vid); }
-          else vid.src = src;
-        } catch { vid.src = src; }
-      } else {
-        vid.src = src;
+      let src = null;
+      try {
+        src = await resolveVideoUrl(l);   // R2 uchun vaqtincha havola so'raydi
+      } catch (err) {
+        vid.closest('div').innerHTML = `<div class="absolute inset-0 flex items-center justify-center text-sm text-rose-300 px-4 text-center">Video ochilmadi: ${esc(err.message || '')}</div>`;
+      }
+      if (src) {
+        if (/\.m3u8(\?|$)/i.test(src) && !vid.canPlayType('application/vnd.apple.mpegurl')) {
+          try {
+            const { default: Hls } = await import('https://esm.sh/hls.js@1.5.17');
+            if (Hls.isSupported()) { const h = new Hls(); h.loadSource(src); h.attachMedia(vid); }
+            else vid.src = src;
+          } catch { vid.src = src; }
+        } else {
+          vid.src = src;
+        }
       }
       vid.onended = async () => {
         if (!doneSet.has(l.id) && await markLessonDone(l.id)) { doneSet.add(l.id); paintDone(); }
@@ -638,7 +645,7 @@ async function libDarslar(body, main) {
           ${mod.description ? `<div class="text-xs text-slate-500 mb-2">${esc(mod.description)}</div>` : '<div class="mb-2"></div>'}
           ${ls.length === 0 ? '<div class="text-xs text-slate-600">Dars yo\'q</div>' : `<div class="space-y-1.5">
             ${ls.map((l) => `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border ${doneSet.has(l.id) ? 'border-emerald-700/50' : 'border-slate-800'} transition">
-              <span class="text-lg shrink-0">${doneSet.has(l.id) ? '✅' : (l.video_url ? '🎬' : '📄')}</span>
+              <span class="text-lg shrink-0">${doneSet.has(l.id) ? '✅' : (hasVideo(l) ? '🎬' : '📄')}</span>
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-semibold text-slate-100 truncate">${esc(l.title)}</span>
                 ${l.duration_min ? `<span class="block text-[11px] text-slate-500">⏱ ${esc(libDur(l.duration_min))}</span>` : ''}

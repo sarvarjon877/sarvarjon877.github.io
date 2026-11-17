@@ -4,7 +4,10 @@
 import { sb, run } from '../db.js';
 import { $, $$, esc, toast, modal, confirmDialog, emptyState, btnCls } from '../ui.js';
 import { currentUser } from '../app.js';
-import { uploadVideo, deleteVideo, mb, MAX_VIDEO_MB, TAVSIYA_MB } from '../video-store.js';
+import { uploadVideo, deleteVideo, resolveVideoUrl, mb, MAX_VIDEO_MB, TAVSIYA_MB } from '../video-store.js';
+
+// Darsda video bormi (R2 fayli yoki tashqi havola)
+const hasVideo = (l) => !!(l?.video_url || l?.video_path);
 
 const canManage = () => ['direktor', 'moliyachi', 'admin', 'oqituvchi'].includes(currentUser.role);
 const LS_KEY = 'finway_lib_course';
@@ -65,20 +68,20 @@ function lessonModal(module, lesson) {
         </div>
         <div>
           <label class="block text-xs font-semibold text-slate-500 mb-1.5">🎬 Dars videosi</label>
-          ${L.video_url ? `<div class="flex items-center gap-2 mb-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-            <span>${L.video_provider === 'file' ? '🎞' : '🔗'}</span>
-            <span class="truncate flex-1 text-slate-600">${L.video_provider === 'file' ? `Yuklangan video${L.video_size ? ` · ${mb(L.video_size)} MB` : ''}` : esc(L.video_url)}</span>
+          ${hasVideo(L) ? `<div class="flex items-center gap-2 mb-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            <span>${L.video_path ? '🎞' : '🔗'}</span>
+            <span class="truncate flex-1 text-slate-600">${L.video_path ? `Yuklangan video${L.video_size ? ` · ${mb(L.video_size)} MB` : ''}` : esc(L.video_url)}</span>
             <label class="inline-flex items-center gap-1 text-rose-500 cursor-pointer shrink-0"><input type="checkbox" name="remove_video" class="accent-rose-500"> o'chirish</label>
           </div>` : ''}
           <input name="video" type="file" accept="video/*" class="${uploadInputCls} file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-600 file:text-white file:text-xs file:font-semibold">
-          <div class="mt-1.5 text-[11px] text-slate-400">${L.video_url ? 'Yangi video tanlasangiz eskisini almashtiradi. ' : ''}Videoni shu yerga yuklang — o'quvchi uni faqat ilova ichida ko'radi. Maksimum ${MAX_VIDEO_MB} MB, ${TAVSIYA_MB} MB atrofida bo'lsa telefonda tez ochiladi.</div>
+          <div class="mt-1.5 text-[11px] text-slate-400">${hasVideo(L) ? 'Yangi video tanlasangiz eskisini almashtiradi. ' : ''}Videoni shu yerga yuklang — o'quvchi uni faqat ilova ichida ko'radi. Maksimum ${MAX_VIDEO_MB} MB, ${TAVSIYA_MB} MB atrofida bo'lsa telefonda tez ochiladi.</div>
           <div id="vidProg" class="hidden mt-2">
             <div class="h-2 rounded-full bg-slate-100 overflow-hidden"><div id="vidBar" class="h-full bg-blue-600 transition-all" style="width:0%"></div></div>
             <div id="vidTxt" class="text-[11px] text-slate-500 mt-1">Yuklanmoqda...</div>
           </div>
-          <details class="mt-2" ${L.video_url && L.video_provider !== 'file' ? 'open' : ''}>
+          <details class="mt-2" ${L.video_url && !L.video_path ? 'open' : ''}>
             <summary class="text-[11px] text-slate-400 cursor-pointer select-none">yoki tashqi havola qo'yish (YouTube / Vimeo)</summary>
-            <input name="video_url" value="${esc(L.video_provider === 'file' ? '' : (L.video_url || ''))}" class="${uploadInputCls} mt-1.5" placeholder="https://youtu.be/...">
+            <input name="video_url" value="${esc(L.video_path ? '' : (L.video_url || ''))}" class="${uploadInputCls} mt-1.5" placeholder="https://youtu.be/...">
           </details>
         </div>
         <div class="grid grid-cols-2 gap-3">
@@ -128,20 +131,20 @@ function lessonModal(module, lesson) {
 
       // --- Video: yuklangan fayl yoki tashqi havola ---
       const vidFile = fd.get('video');
-      const hasVideo = vidFile && vidFile.size > 0;
+      const hasNewVideo = vidFile && vidFile.size > 0;
       const linkUrl = String(fd.get('video_url') || '').trim();
       const rmVideo = fd.get('remove_video') === 'on';
-      if (hasVideo && vidFile.size > MAX_VIDEO_MB * 1048576) {
+      if (hasNewVideo && vidFile.size > MAX_VIDEO_MB * 1048576) {
         return toast(`Video ${MAX_VIDEO_MB} MB dan katta (${mb(vidFile.size)} MB). Avval siqib oling.`, 'error');
       }
-      if (!hasVideo) {
+      if (!hasNewVideo) {
         if (rmVideo) {
           row.video_url = null; row.video_provider = null; row.video_path = null; row.video_size = null;
         } else if (linkUrl) {
           row.video_url = linkUrl;
           row.video_provider = parseVideo(linkUrl)?.type || 'link';
           row.video_path = null; row.video_size = null;
-        } else if (isEdit && L.video_provider !== 'file' && L.video_url) {
+        } else if (isEdit && !L.video_path && L.video_url) {
           row.video_url = null; row.video_provider = null;   // havola maydoni tozalangan
         }
       }
@@ -151,9 +154,9 @@ function lessonModal(module, lesson) {
       if (hasNewFile && file.size > 52428800) return toast('Fayl 50 MB dan katta', 'error');
 
       submitBtn.disabled = true;
-      submitBtn.textContent = hasVideo ? 'Video yuklanmoqda...' : (hasNewFile ? 'Yuklanmoqda...' : 'Saqlanmoqda...');
+      submitBtn.textContent = hasNewVideo ? 'Video yuklanmoqda...' : (hasNewFile ? 'Yuklanmoqda...' : 'Saqlanmoqda...');
       try {
-        if (hasVideo) {
+        if (hasNewVideo) {
           const prog = $('#vidProg', m.body), bar = $('#vidBar', m.body), txt = $('#vidTxt', m.body);
           prog.classList.remove('hidden');
           const up = await uploadVideo(vidFile, {
@@ -163,11 +166,11 @@ function lessonModal(module, lesson) {
               txt.textContent = `${p}% · ${mb(loaded)} / ${mb(total)} MB`;
             },
           });
-          if (isEdit && L.video_path) await deleteVideo(L.video_path);
-          row.video_url = up.url; row.video_provider = 'file'; row.video_path = up.path; row.video_size = up.size;
+          if (isEdit && L.video_path) await deleteVideo(L.video_path, L.video_provider);
+          row.video_url = null; row.video_provider = 'r2'; row.video_path = up.path; row.video_size = up.size;
           txt.textContent = 'Video yuklandi ✅';
         } else if (rmVideo && isEdit && L.video_path) {
-          await deleteVideo(L.video_path);
+          await deleteVideo(L.video_path, L.video_provider);
         }
         if (hasNewFile) {
           const dot = file.name.lastIndexOf('.');
@@ -258,9 +261,13 @@ export function openPdf(url, name) {
 }
 
 // --- Darsni ko'rish (preview) modali ---
-function viewLesson(lesson) {
+async function viewLesson(lesson) {
+  let src = null, xato = null;
+  try { src = await resolveVideoUrl(lesson); } catch (e) { xato = e.message || 'ochilmadi'; }
   const m = modal(lesson.title, `
-    ${lesson.video_url ? videoBlock(lesson.video_url, false, lesson) : '<div class="text-sm text-slate-400 py-3">Video qo\'yilmagan</div>'}
+    ${src ? videoBlock(src, false, lesson)
+      : (xato ? `<div class="text-sm text-rose-500 py-3">Video ochilmadi: ${esc(xato)}</div>`
+              : '<div class="text-sm text-slate-400 py-3">Video qo\'yilmagan</div>')}
     ${lesson.duration_min ? `<div class="mt-3 text-xs text-slate-500">⏱ ${esc(fmtDur(lesson.duration_min))}</div>` : ''}
     ${lesson.description ? `<div class="mt-3 text-sm text-slate-600 whitespace-pre-wrap">${esc(lesson.description)}</div>` : ''}
     ${lesson.pdf_url ? `<button data-pdf class="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700">📄 ${esc(lesson.pdf_name || 'PDF / prezentatsiya')}</button>` : ''}
@@ -319,12 +326,12 @@ export async function render(container) {
             ${ls.length === 0 ? '<div class="px-5 py-4 text-sm text-slate-400">Dars yo\'q</div>'
               : `<div class="divide-y divide-slate-50">${ls.map((l) => `
                 <div class="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
-                  <span class="text-lg shrink-0">${l.video_url ? '🎬' : '📄'}</span>
+                  <span class="text-lg shrink-0">${hasVideo(l) ? '🎬' : '📄'}</span>
                   <div class="min-w-0 flex-1">
                     <div class="font-semibold text-sm text-slate-800 truncate">${esc(l.title)}</div>
                     <div class="text-[11px] text-slate-400 flex flex-wrap gap-x-3">
                       ${l.duration_min ? `<span>⏱ ${esc(fmtDur(l.duration_min))}</span>` : ''}
-                      ${l.video_url ? '<span>🎬 Video</span>' : '<span class="text-amber-500">video yo\'q</span>'}
+                      ${hasVideo(l) ? '<span>🎬 Video</span>' : '<span class="text-amber-500">video yo\'q</span>'}
                       ${l.pdf_url ? '<span>📄 PDF</span>' : ''}
                     </div>
                   </div>
@@ -366,7 +373,7 @@ export async function render(container) {
         const l = lessons.find((x) => x.id === b.dataset.dell);
         if (!(await confirmDialog(`«${l.title}» darsi o'chiriladi${l.video_path ? ' (video fayli ham)' : ''}. Davom etasizmi?`))) return;
         await run(sb.from('course_lessons').delete().eq('id', l.id));
-        if (l.video_path) await deleteVideo(l.video_path);
+        if (l.video_path) await deleteVideo(l.video_path, l.video_provider);
         toast("O'chirildi"); paint();
       });
     }

@@ -2,13 +2,14 @@
 // Struktura: Kurs -> Modul -> Dars (video havolasi + tavsif + PDF/prezentatsiya).
 // Xodimlar (direktor/moliyachi/admin/o'qituvchi) qo'shadi; o'quvchilar portalda ko'radi.
 import { sb, run } from '../db.js';
-import { $, $$, esc, toast, modal, confirmDialog, emptyState, btnCls } from '../ui.js';
+import { $, $$, esc, toast, modal, confirmDialog, emptyState, btnCls, fmtDate } from '../ui.js';
 import { currentUser } from '../app.js';
 import { uploadVideo, deleteVideo, resolveVideoUrl, mb, MAX_VIDEO_MB, TAVSIYA_MB } from '../video-store.js';
 import { openPdfViewer } from '../pdf-viewer.js';
 
 // Darsda video bormi (R2 fayli yoki tashqi havola)
 const hasVideo = (l) => !!(l?.video_url || l?.video_path);
+const bugun = () => new Date().toISOString().slice(0, 10);
 
 const canManage = () => ['direktor', 'moliyachi', 'admin', 'oqituvchi'].includes(currentUser.role);
 const LS_KEY = 'finway_lib_course';
@@ -216,10 +217,17 @@ function moduleModal(courseId, module) {
           <label class="block text-xs font-semibold text-slate-500 mb-1.5">Tavsif</label>
           <textarea name="description" rows="2" class="${uploadInputCls}" placeholder="Ixtiyoriy">${esc(M.description || '')}</textarea>
         </div>
-        <div>
-          <label class="block text-xs font-semibold text-slate-500 mb-1.5">Tartib raqami</label>
-          <input name="sort_order" type="number" min="0" inputmode="numeric" value="${esc(M.sort_order ?? '')}" class="${uploadInputCls}" placeholder="1">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5">Tartib raqami</label>
+            <input name="sort_order" type="number" min="0" inputmode="numeric" value="${esc(M.sort_order ?? '')}" class="${uploadInputCls}" placeholder="1">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 mb-1.5">Qachon ochiladi</label>
+            <input name="opens_at" type="date" value="${esc(M.opens_at || '')}" class="${uploadInputCls}">
+          </div>
         </div>
+        <div class="text-[11px] text-slate-400 -mt-2">Sana qo'yilsa, modul o'sha kundan o'zi ochiladi. Bo'sh qoldirsangiz sana bo'yicha cheklov bo'lmaydi.</div>
         <div class="flex justify-end gap-2 pt-1">
           <button type="button" data-cancel class="px-4 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-sm font-medium">Bekor qilish</button>
           <button type="submit" class="px-5 py-2 rounded-lg bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold">${isEdit ? 'Saqlash' : "Qo'shish"}</button>
@@ -236,6 +244,7 @@ function moduleModal(courseId, module) {
         title,
         description: String(fd.get('description') || '').trim() || null,
         sort_order: fd.get('sort_order') ? Number(fd.get('sort_order')) : (isEdit ? (M.sort_order || 0) : 0),
+        opens_at: String(fd.get('opens_at') || '').trim() || null,
       };
       const btn = e.target.querySelector('button[type="submit"]');
       btn.disabled = true; btn.textContent = 'Saqlanmoqda...';
@@ -311,7 +320,7 @@ export async function render(container) {
               <div class="min-w-0">
                 <div class="font-bold text-slate-800">${mod.locked ? '🔒 ' : ''}${esc(mod.title)}</div>
                 ${mod.description ? `<div class="text-xs text-slate-500 mt-0.5">${esc(mod.description)}</div>` : ''}
-                <div class="text-[11px] text-slate-400 mt-1">${ls.length} ta dars</div>
+                <div class="text-[11px] text-slate-400 mt-1">${ls.length} ta dars${mod.opens_at ? ` · 📅 ${esc(fmtDate(mod.opens_at))}${mod.opens_at > bugun() ? ' dan ochiladi' : ' dan ochiq'}` : ''}</div>
               </div>
               ${manage ? `<div class="flex items-center gap-1 shrink-0">
                 <button data-lockm="${mod.id}" title="${mod.locked ? 'Modulni ochish' : 'Modulni yopish'}" class="px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${mod.locked ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}">${mod.locked ? '🔒 Yopiq' : '🔓 Ochiq'}</button>

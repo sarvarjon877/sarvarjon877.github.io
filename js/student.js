@@ -207,6 +207,12 @@ async function loadCourseLessons(courseId) {
     run(sb.from('lesson_progress').select('lesson_id,completed').eq('student_id', S.student.id)),
   ]);
   const doneSet = new Set((progress || []).filter((p) => p.completed).map((p) => p.lesson_id));
+  // Modul yopiq bo'lishi mumkin: qo'lda yopilgan yoki ochilish sanasi hali kelmagan
+  const bugun = today();
+  modules.forEach((m) => {
+    m.kutilmoqda = !m.locked && !!m.opens_at && m.opens_at > bugun;
+    m.locked = !!m.locked || m.kutilmoqda;
+  });
   const modLocked = new Map(modules.map((m) => [m.id, !!m.locked]));
   // Yopiq modul ichidagi dars ham yopiq hisoblanadi
   lessons.forEach((l) => { l.locked = !!l.locked || modLocked.get(l.module_id) === true; });
@@ -281,7 +287,7 @@ async function drawHomeOnline(main) {
           const d = ls.filter((l) => doneSet.has(l.id)).length;
           return `<div class="flex items-center justify-between gap-2">
             <div class="text-sm ${mod.locked ? 'text-slate-500' : 'text-slate-300'} truncate">${mod.locked ? '🔒 ' : ''}${esc(mod.title)}</div>
-            <div class="text-[11px] font-bold shrink-0 ${mod.locked ? 'text-slate-600' : (d === ls.length && ls.length ? 'text-emerald-400' : 'text-slate-500')}">${mod.locked ? 'yopiq' : `${d}/${ls.length}`}</div>
+            <div class="text-[11px] font-bold shrink-0 ${mod.locked ? 'text-slate-600' : (d === ls.length && ls.length ? 'text-emerald-400' : 'text-slate-500')}">${mod.locked ? (mod.kutilmoqda ? esc(fmtDate(mod.opens_at)) : 'yopiq') : `${d}/${ls.length}`}</div>
           </div>`;
         }).join('')}
       </div>` : '<div class="text-sm text-slate-500">Darslar hali qo\'shilmagan.</div>'}
@@ -663,7 +669,7 @@ async function libDarslar(body, main) {
                 <div class="font-bold text-slate-300 truncate">${esc(mod.title)}</div>
                 ${mod.description ? `<div class="text-xs text-slate-500 truncate">${esc(mod.description)}</div>` : ''}
               </div>
-              <span class="text-[10px] font-bold text-slate-500 border border-slate-700 rounded-lg px-2 py-1 shrink-0">Tez orada</span>
+              <span class="text-[10px] font-bold text-slate-400 border border-slate-700 rounded-lg px-2 py-1 shrink-0 text-center leading-tight">${mod.kutilmoqda ? esc(fmtDate(mod.opens_at)) + '<br>da ochiladi' : 'Tez orada'}</span>
             </div>`);
         }
         return card(`

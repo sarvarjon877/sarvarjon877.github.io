@@ -127,6 +127,8 @@ export async function mountChat(el, opts) {
           sender_role: me.role, sender_id: me.id || null, sender_name: me.name, body,
         }).select());
         append(row); // realtime kechiksa ham darhol ko'rinadi
+        // Telegramga bildirishnoma — javobini kutmaymiz, chat kechikmasin
+        sb.functions.invoke('chat-tg', { body: { message_id: row.id } }).catch(() => { /* bildirishnoma bo'lmasa ham chat ishlayveradi */ });
       } catch {
         toast('Xabar yuborilmadi', 'error');
       }

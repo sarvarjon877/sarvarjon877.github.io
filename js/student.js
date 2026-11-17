@@ -207,7 +207,11 @@ async function loadCourseLessons(courseId) {
     run(sb.from('lesson_progress').select('lesson_id,completed').eq('student_id', S.student.id)),
   ]);
   const doneSet = new Set((progress || []).filter((p) => p.completed).map((p) => p.lesson_id));
-  return { modules, lessons, doneSet };
+  const modLocked = new Map(modules.map((m) => [m.id, !!m.locked]));
+  // Yopiq modul ichidagi dars ham yopiq hisoblanadi
+  lessons.forEach((l) => { l.locked = !!l.locked || modLocked.get(l.module_id) === true; });
+  const ochiq = lessons.filter((l) => !l.locked);
+  return { modules, lessons, ochiq, doneSet };
 }
 
 async function markLessonDone(lessonId) {
@@ -225,12 +229,13 @@ async function drawHomeOnline(main) {
   main.innerHTML = '<div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div>';
   const courseId = activeCourseId();
   const course = S.courses.find((c) => c.id === courseId);
-  const { modules, lessons, doneSet } = courseId ? await loadCourseLessons(courseId) : { modules: [], lessons: [], doneSet: new Set() };
-  const total = lessons.length;
-  const done = lessons.filter((l) => doneSet.has(l.id)).length;
+  const { modules, lessons, ochiq, doneSet } = courseId ? await loadCourseLessons(courseId) : { modules: [], lessons: [], ochiq: [], doneSet: new Set() };
+  const total = ochiq.length;
+  const done = ochiq.filter((l) => doneSet.has(l.id)).length;
   const pct = total ? Math.round((done / total) * 100) : 0;
-  const next = lessons.find((l) => !doneSet.has(l.id));
-  const totalMin = lessons.reduce((a, l) => a + (Number(l.duration_min) || 0), 0);
+  const next = ochiq.find((l) => !doneSet.has(l.id));
+  const yopiq = lessons.length - ochiq.length;
+  const totalMin = ochiq.reduce((a, l) => a + (Number(l.duration_min) || 0), 0);
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Xayrli tong' : hour < 18 ? 'Xayrli kun' : 'Xayrli kech';
 
@@ -251,7 +256,8 @@ async function drawHomeOnline(main) {
           ${ring(pct, `<div class="text-base font-extrabold text-white">${pct}<span class="text-[9px]">%</span></div>`, '#ffffff', 72)}
           <div class="text-sm">
             <div class="font-bold text-white">${done} / ${total} dars</div>
-            <div class="text-indigo-100 text-xs mt-0.5">${total - done > 0 ? `${total - done} ta dars qoldi` : 'Barcha darslar ko\'rildi 🎉'}</div>
+            <div class="text-indigo-100 text-xs mt-0.5">${total === 0 ? 'Darslar tez orada ochiladi' : (total - done > 0 ? `${total - done} ta dars qoldi` : 'Ochiq darslar tugadi 🎉')}</div>
+            ${yopiq ? `<div class="text-indigo-200/70 text-[11px] mt-0.5">🔒 ${yopiq} ta dars hali yopiq</div>` : ''}
             ${totalMin ? `<div class="text-indigo-200/80 text-[11px] mt-0.5">⏱ Jami ${esc(libDur(totalMin))}</div>` : ''}
           </div>
         </div>
@@ -274,8 +280,8 @@ async function drawHomeOnline(main) {
           const ls = lessons.filter((l) => l.module_id === mod.id);
           const d = ls.filter((l) => doneSet.has(l.id)).length;
           return `<div class="flex items-center justify-between gap-2">
-            <div class="text-sm text-slate-300 truncate">${esc(mod.title)}</div>
-            <div class="text-[11px] font-bold shrink-0 ${d === ls.length && ls.length ? 'text-emerald-400' : 'text-slate-500'}">${d}/${ls.length}</div>
+            <div class="text-sm ${mod.locked ? 'text-slate-500' : 'text-slate-300'} truncate">${mod.locked ? '🔒 ' : ''}${esc(mod.title)}</div>
+            <div class="text-[11px] font-bold shrink-0 ${mod.locked ? 'text-slate-600' : (d === ls.length && ls.length ? 'text-emerald-400' : 'text-slate-500')}">${mod.locked ? 'yopiq' : `${d}/${ls.length}`}</div>
           </div>`;
         }).join('')}
       </div>` : '<div class="text-sm text-slate-500">Darslar hali qo\'shilmagan.</div>'}
@@ -569,6 +575,7 @@ async function libDarslar(body, main) {
   const { modules, lessons, doneSet } = await loadCourseLessons(courseId);
 
   const openLesson = async (l) => {
+    if (l.locked) return;
     main.scrollTop = 0;
     const done = doneSet.has(l.id);
     main.innerHTML = `
@@ -630,6 +637,18 @@ async function libDarslar(body, main) {
     : `<div class="space-y-3">${modules.map((mod) => {
         const ls = lessons.filter((l) => l.module_id === mod.id);
         const d = ls.filter((l) => doneSet.has(l.id)).length;
+        // Yopiq modul: nomi ko'rinadi, ichi ochilmaydi
+        if (mod.locked) {
+          return card(`
+            <div class="flex items-center gap-2.5 opacity-70">
+              <span class="text-lg shrink-0">🔒</span>
+              <div class="min-w-0 flex-1">
+                <div class="font-bold text-slate-300 truncate">${esc(mod.title)}</div>
+                ${mod.description ? `<div class="text-xs text-slate-500 truncate">${esc(mod.description)}</div>` : ''}
+              </div>
+              <span class="text-[10px] font-bold text-slate-500 border border-slate-700 rounded-lg px-2 py-1 shrink-0">Tez orada</span>
+            </div>`);
+        }
         return card(`
           <div class="flex items-center justify-between gap-2 mb-0.5">
             <div class="font-bold text-slate-100 truncate">${esc(mod.title)}</div>
@@ -637,7 +656,15 @@ async function libDarslar(body, main) {
           </div>
           ${mod.description ? `<div class="text-xs text-slate-500 mb-2">${esc(mod.description)}</div>` : '<div class="mb-2"></div>'}
           ${ls.length === 0 ? '<div class="text-xs text-slate-600">Dars yo\'q</div>' : `<div class="space-y-1.5">
-            ${ls.map((l) => `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border ${doneSet.has(l.id) ? 'border-emerald-700/50' : 'border-slate-800'} transition">
+            ${ls.map((l) => l.locked
+              ? `<div class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-900/50 border border-slate-800/70 opacity-70">
+                  <span class="text-lg shrink-0">🔒</span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold text-slate-400 truncate">${esc(l.title)}</span>
+                    <span class="block text-[11px] text-slate-600">Hali ochilmagan</span>
+                  </span>
+                </div>`
+              : `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border ${doneSet.has(l.id) ? 'border-emerald-700/50' : 'border-slate-800'} transition">
               <span class="text-lg shrink-0">${doneSet.has(l.id) ? '✅' : (hasVideo(l) ? '🎬' : '📄')}</span>
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-semibold text-slate-100 truncate">${esc(l.title)}</span>

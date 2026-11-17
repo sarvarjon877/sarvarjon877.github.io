@@ -309,11 +309,12 @@ export async function render(container) {
           return `<div class="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
             <div class="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50/50">
               <div class="min-w-0">
-                <div class="font-bold text-slate-800">${esc(mod.title)}</div>
+                <div class="font-bold text-slate-800">${mod.locked ? '🔒 ' : ''}${esc(mod.title)}</div>
                 ${mod.description ? `<div class="text-xs text-slate-500 mt-0.5">${esc(mod.description)}</div>` : ''}
                 <div class="text-[11px] text-slate-400 mt-1">${ls.length} ta dars</div>
               </div>
               ${manage ? `<div class="flex items-center gap-1 shrink-0">
+                <button data-lockm="${mod.id}" title="${mod.locked ? 'Modulni ochish' : 'Modulni yopish'}" class="px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${mod.locked ? 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}">${mod.locked ? '🔒 Yopiq' : '🔓 Ochiq'}</button>
                 <button data-addl="${mod.id}" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">+ Dars</button>
                 <button data-editm="${mod.id}" class="${btnCls.iconEdit}">✏️</button>
                 <button data-delm="${mod.id}" class="${btnCls.iconDel}">🗑</button>
@@ -322,17 +323,19 @@ export async function render(container) {
             ${ls.length === 0 ? '<div class="px-5 py-4 text-sm text-slate-400">Dars yo\'q</div>'
               : `<div class="divide-y divide-slate-50">${ls.map((l) => `
                 <div class="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
-                  <span class="text-lg shrink-0">${hasVideo(l) ? '🎬' : '📄'}</span>
+                  <span class="text-lg shrink-0">${l.locked ? '🔒' : (hasVideo(l) ? '🎬' : '📄')}</span>
                   <div class="min-w-0 flex-1">
                     <div class="font-semibold text-sm text-slate-800 truncate">${esc(l.title)}</div>
                     <div class="text-[11px] text-slate-400 flex flex-wrap gap-x-3">
                       ${l.duration_min ? `<span>⏱ ${esc(fmtDur(l.duration_min))}</span>` : ''}
                       ${hasVideo(l) ? '<span>🎬 Video</span>' : '<span class="text-amber-500">video yo\'q</span>'}
                       ${l.pdf_url ? '<span>📄 PDF</span>' : ''}
+                      ${l.locked ? '<span class="text-amber-600 font-semibold">🔒 yopiq</span>' : ''}
                     </div>
                   </div>
                   <button data-view="${l.id}" class="${btnCls.ghost} shrink-0">Ko'rish</button>
-                  ${manage ? `<button data-editl="${l.id}" class="${btnCls.iconEdit} shrink-0">✏️</button>
+                  ${manage ? `<button data-lockl="${l.id}" title="${l.locked ? 'Darsni ochish' : 'Darsni yopish'}" class="${btnCls.ghost} shrink-0">${l.locked ? '🔒' : '🔓'}</button>
+                  <button data-editl="${l.id}" class="${btnCls.iconEdit} shrink-0">✏️</button>
                   <button data-dell="${l.id}" class="${btnCls.iconDel} shrink-0">🗑</button>` : ''}
                 </div>`).join('')}</div>`}
           </div>`;
@@ -355,6 +358,19 @@ export async function render(container) {
         if (!(await confirmDialog(`«${mod.title}» moduli${cnt ? ' va uning ' + cnt + ' ta darsi' : ''} o'chiriladi. Davom etasizmi?`))) return;
         await run(sb.from('course_modules').delete().eq('id', mod.id));
         toast("O'chirildi"); paint();
+      });
+      // Ochish / yopish — yopiq modul va dars o'quvchiga qulf bilan ko'rinadi
+      $$('[data-lockm]', container).forEach((b) => b.onclick = async () => {
+        const mod = modules.find((x) => x.id === b.dataset.lockm);
+        await run(sb.from('course_modules').update({ locked: !mod.locked }).eq('id', mod.id));
+        toast(mod.locked ? 'Modul ochildi' : 'Modul yopildi');
+        paint();
+      });
+      $$('[data-lockl]', container).forEach((b) => b.onclick = async () => {
+        const l = lessons.find((x) => x.id === b.dataset.lockl);
+        await run(sb.from('course_lessons').update({ locked: !l.locked }).eq('id', l.id));
+        toast(l.locked ? 'Dars ochildi' : 'Dars yopildi');
+        paint();
       });
       $$('[data-addl]', container).forEach((b) => b.onclick = async () => {
         const mod = modules.find((x) => x.id === b.dataset.addl);

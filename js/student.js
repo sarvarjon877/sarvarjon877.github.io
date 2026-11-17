@@ -5,6 +5,7 @@ import { $, $$, esc, fmtDate, fmtDays, fmtTime, toast, today, formModal, modal, 
 import { mountChat, closeChat } from './chat.js';
 import { renderGame } from './game.js';
 import { isFileVideo, resolveVideoUrl } from './video-store.js';
+import { openPdfViewer } from './pdf-viewer.js';
 
 const ATT = {
   keldi: ['Keldi', '✅', 'text-emerald-400'],
@@ -540,14 +541,6 @@ const libDur = (m) => {
   return (h ? `${h} soat ` : '') + (mm ? `${mm} daq` : '');
 };
 // PDF/hujjatni ilova ichida ochish (tashqi faylga chiqmasdan)
-function openPdfViewer(url, name) {
-  const viewer = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}`;
-  modal(name || 'Material', `
-    <iframe src="${esc(viewer)}" class="w-full rounded-lg border border-slate-200 bg-white" style="height:78vh"></iframe>
-    <div class="mt-2 text-right"><a href="${esc(url)}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">Ochilmasa — yangi oynada ochish ↗</a></div>
-  `, { wide: true });
-}
-
 async function drawLibrary(main) {
   // Sinf ishi va uy ishi guruhga bog'liq — onlayn o'quvchida faqat darslar bo'ladi
   const subs = S.groupId ? LIB_SUBS : LIB_SUBS.filter((s) => s.id === 'darslar');

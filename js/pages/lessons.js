@@ -5,6 +5,7 @@ import { sb, run } from '../db.js';
 import { $, $$, esc, toast, modal, confirmDialog, emptyState, btnCls } from '../ui.js';
 import { currentUser } from '../app.js';
 import { uploadVideo, deleteVideo, resolveVideoUrl, mb, MAX_VIDEO_MB, TAVSIYA_MB } from '../video-store.js';
+import { openPdfViewer } from '../pdf-viewer.js';
 
 // Darsda video bormi (R2 fayli yoki tashqi havola)
 const hasVideo = (l) => !!(l?.video_url || l?.video_path);
@@ -252,12 +253,7 @@ function moduleModal(courseId, module) {
 
 // --- PDF/hujjatni ilova ichida ochish (yangi oynaga chiqmasdan) ---
 export function openPdf(url, name) {
-  const viewer = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}`;
-  const m = modal(name || 'Hujjat', `
-    <iframe src="${esc(viewer)}" class="w-full rounded-lg border border-slate-200 bg-slate-50" style="height:78vh"></iframe>
-    <div class="mt-2 text-right"><a href="${esc(url)}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">Ochilmasa — yangi oynada ochish ↗</a></div>
-  `, { wide: true });
-  return m;
+  return openPdfViewer(url, name);
 }
 
 // --- Darsni ko'rish (preview) modali ---

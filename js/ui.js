@@ -36,9 +36,9 @@ export function modal(title, bodyHtml, { wide = false } = {}) {
   overlay.className = 'fixed inset-0 z-50 bg-slate-900/50 flex items-start justify-center p-4 overflow-y-auto';
   overlay.innerHTML = `
     <div class="bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-4xl' : 'max-w-lg'} my-8 fade-in">
-      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-        <h3 class="font-bold text-lg">${esc(title)}</h3>
-        <button data-close class="text-slate-400 hover:text-slate-700 text-2xl leading-none">&times;</button>
+      <div class="sticky top-0 z-10 bg-white rounded-t-2xl flex items-center gap-3 justify-between px-6 py-4 border-b border-slate-100">
+        <h3 class="font-bold text-lg min-w-0 truncate">${esc(title)}</h3>
+        <button data-close class="w-9 h-9 shrink-0 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 text-2xl leading-none flex items-center justify-center">&times;</button>
       </div>
       <div class="p-6" data-body></div>
     </div>`;

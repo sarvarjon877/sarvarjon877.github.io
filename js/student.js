@@ -5,7 +5,7 @@ import { $, $$, esc, fmtDate, fmtDays, fmtTime, toast, today, formModal, modal, 
 import { mountChat, closeChat } from './chat.js';
 import { renderGame } from './game.js';
 import { isFileVideo, resolveVideoUrl } from './video-store.js';
-import { openPdfViewer } from './pdf-viewer.js';
+import { openPdfViewer, closePdfViewer } from './pdf-viewer.js';
 
 const ATT = {
   keldi: ['Keldi', '✅', 'text-emerald-400'],
@@ -147,6 +147,7 @@ function setNav() {
 
 async function drawTab() {
   closeChat();
+  closePdfViewer();   // bo'lim almashganda PDF ochiq qolmasin
   setNav();
   const main = $('#sMain');
   main.scrollTop = 0;

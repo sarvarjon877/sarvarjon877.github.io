@@ -7,12 +7,21 @@ import { $, esc } from './ui.js';
 
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
 
+/** Ochiq turgan ko'ruvchini yopadi (sahifa almashganda chaqiriladi). */
+export function closePdfViewer() {
+  document.querySelectorAll('[data-pdf-viewer]').forEach((el) => el.remove());
+}
+
 export function openPdfViewer(url, name) {
+  closePdfViewer();   // ikkitasi birdan ochilib qolmasin
   const wrap = document.createElement('div');
-  wrap.className = 'fixed inset-0 z-[60] flex flex-col';
-  wrap.style.background = '#0a0f22';
+  wrap.setAttribute('data-pdf-viewer', '');
+  // Joylashuv va qatlam INLINE beriladi: saytning CSS faylida z-[60] kabi
+  // klasslar yo'q, shuning uchun ko'ruvchi ilova ostida qolib ketardi.
+  wrap.style.cssText = 'position:fixed; top:0; right:0; bottom:0; left:0; z-index:2147483000;'
+    + ' display:flex; flex-direction:column; background:#0a0f22; overscroll-behavior:contain;';
   wrap.innerHTML = `
-    <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10 shrink-0" style="background:rgba(10,15,34,.96)">
+    <div class="flex items-center gap-2 px-4 py-3 border-b border-white/10" style="flex:0 0 auto; background:rgba(10,15,34,.96)">
       <div class="min-w-0 flex-1">
         <div class="text-[11px] text-indigo-300/70">Material</div>
         <div class="text-sm font-bold text-slate-100 truncate">${esc(name || 'PDF')}</div>
@@ -20,10 +29,10 @@ export function openPdfViewer(url, name) {
       <div data-prog class="text-[11px] text-slate-400 shrink-0"></div>
       <button data-x class="w-10 h-10 shrink-0 rounded-xl bg-white/10 hover:bg-white/20 text-slate-100 text-xl leading-none flex items-center justify-center">&times;</button>
     </div>
-    <div data-body class="flex-1 overflow-y-auto p-3 space-y-3">
+    <div data-body class="overflow-y-auto p-3 space-y-3" style="flex:1 1 auto; min-height:0;">
       <div class="text-center text-slate-400 text-sm py-10">Ochilmoqda...</div>
     </div>
-    <div class="px-4 py-2 border-t border-white/10 shrink-0 text-center">
+    <div class="px-4 py-2 border-t border-white/10 text-center" style="flex:0 0 auto;">
       <a href="${esc(url)}" target="_blank" rel="noopener" class="text-xs text-indigo-300 hover:underline">Ochilmasa — yangi oynada ochish ↗</a>
     </div>`;
   document.body.appendChild(wrap);

@@ -232,6 +232,27 @@ async function markLessonDone(lessonId) {
 }
 
 // --- Onlayn o'quvchi bosh sahifasi (guruh yo'q — kurs va darslik asosiy) ---
+// Sayt sifatida ochilganda brauzer xotirani vaqti-vaqti bilan tozalab yuboradi
+// va o'quvchi hisobidan chiqib qoladi. Bosh ekranga qo'shilgan ilovada bunday emas.
+const ILOVA_REJIMI = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const BANNER_KEY = 'finway_ekran_maslahati';
+function ekrangaQoshishBanneri() {
+  if (ILOVA_REJIMI()) return '';
+  try { if (localStorage.getItem(BANNER_KEY) === 'yopildi') return ''; } catch { /* yopiq rejim */ }
+  const iOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const yol = iOS
+    ? 'Pastdagi "Ulashish" belgisini bosing \u2192 "Bosh ekranga qo\'shish".'
+    : 'Brauzer menyusini oching \u2192 "Ilovani o\'rnatish" yoki "Bosh ekranga qo\'shish".';
+  return `<div id="ekranBanner" class="flex items-start gap-3 rounded-2xl border border-indigo-400/30 bg-indigo-500/10 p-3.5 mb-4">
+    <span class="text-xl leading-none mt-0.5">\ud83d\udcf2</span>
+    <div class="min-w-0 flex-1">
+      <div class="text-[13px] font-bold text-indigo-200">Ilovani telefon ekraniga qo'shing</div>
+      <div class="text-[11px] text-slate-400 mt-0.5 leading-relaxed">Shunda har safar raqam va kod kiritmaysiz \u2014 ochdingizmi, ichidasiz. ${yol}</div>
+    </div>
+    <button id="ekranYop" class="shrink-0 w-7 h-7 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/10 text-sm">\u2715</button>
+  </div>`;
+}
+
 async function drawHomeOnline(main) {
   main.innerHTML = '<div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div>';
   const courseId = activeCourseId();
@@ -248,6 +269,7 @@ async function drawHomeOnline(main) {
 
   main.innerHTML = `
     ${courseSwitcher()}
+    ${ekrangaQoshishBanneri()}
     <div class="relative overflow-hidden rounded-[26px] p-6 mb-4" style="background:linear-gradient(135deg,#4f46e5 0%,#6366f1 45%,#3b82f6 100%); box-shadow:0 22px 48px -20px rgba(79,70,229,.95);">
       <div class="absolute right-0 -top-6 w-52 h-52" style="background:radial-gradient(circle at 65% 35%, rgba(255,255,255,.32), transparent 60%);"></div>
       <div class="relative">
@@ -304,6 +326,12 @@ async function drawHomeOnline(main) {
   const nb = $('#goNext', main);
   if (nb) nb.onclick = () => { S.openLessonId = next.id; S.tab = 'library'; S.libSub = 'darslar'; drawTab(); };
   $('#goAsk', main).onclick = () => { S.tab = 'chat'; S.chatSub = 'private'; drawTab(); };
+  const bYop = $('#ekranYop', main);
+  if (bYop) bYop.onclick = () => {
+    try { localStorage.setItem(BANNER_KEY, 'yopildi'); } catch { /* yopiq rejim */ }
+    const b = $('#ekranBanner', main);
+    if (b) b.remove();
+  };
 }
 
 async function drawHome(main) {

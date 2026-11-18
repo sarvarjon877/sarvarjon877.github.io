@@ -72,12 +72,25 @@ const onlyDigits = (v) => String(v || '').replace(/\D/g, '');
 const DEVICE_KEY = 'finway_device_id';
 // Bitta hisob nechta qurilmadan kira oladi (telefon + noutbuk)
 const QURILMA_LIMIT = 2;
+const cookieOqi = (nom) => {
+  const m = document.cookie.match(new RegExp('(?:^|; )' + nom + '=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : '';
+};
+const cookieYoz = (nom, qiymat) => {
+  try { document.cookie = `${nom}=${encodeURIComponent(qiymat)}; path=/; max-age=34560000; SameSite=Lax`; } catch { /* e'tiborsiz */ }
+};
+/**
+ * Qurilma izi. Ikki joyda saqlanadi: localStorage va cookie.
+ * Brauzer bittasini tozalab yuborsa, ikkinchisidan tiklanadi \u2014 aks holda
+ * o'quvchi o'z telefonidan "yangi qurilma" bo'lib ko'rinib qolardi.
+ */
 export function deviceId() {
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^\w-]/g, '');
-    localStorage.setItem(DEVICE_KEY, id);
-  }
+  let id = '';
+  try { id = localStorage.getItem(DEVICE_KEY) || ''; } catch { /* yopiq rejim */ }
+  if (!id) id = cookieOqi(DEVICE_KEY);
+  if (!id) id = (crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`).replace(/[^\w-]/g, '');
+  try { localStorage.setItem(DEVICE_KEY, id); } catch { /* yopiq rejim */ }
+  cookieYoz(DEVICE_KEY, id);
   return id;
 }
 export function deviceName() {
@@ -104,7 +117,7 @@ async function checkStudentAccess(st) {
   const dev = deviceId();
   const nom = deviceName();
   try {
-    const qurilmalar = await run(sb.from('student_devices').select('id, device_id, device_name').eq('student_id', st.id));
+    const qurilmalar = await run(sb.from('student_devices').select('id, device_id, device_name, last_at').eq('student_id', st.id));
     const shu = (qurilmalar || []).find((q) => q.device_id === dev);
     if (shu) {
       // Shu qurilmadan avval ham kirgan \u2014 oxirgi kirish vaqtini yangilaymiz
@@ -113,11 +126,15 @@ async function checkStudentAccess(st) {
       return { ok: true };
     }
     if ((qurilmalar || []).length >= QURILMA_LIMIT) {
-      const nomlar = qurilmalar.map((q) => q.device_name || 'qurilma').join(', ');
-      return {
-        ok: false,
-        message: `\ud83d\udcf1 Bu hisob ${qurilmalar.length} ta qurilmaga (${nomlar}) biriktirilgan \u2014 chegara ${QURILMA_LIMIT} ta. Yangi qurilmadan kirish uchun administratorga murojaat qiling.`,
-      };
+      // Chegaraga yetdi. O'quvchini umuman kiritmaslik noto'g'ri bo'lardi:
+      // brauzer xotirasini tozalasa yoki telefonini almashtirsa, o'z hisobidan
+      // chiqib qolardi. Shuning uchun eng uzoq ishlatilmagan qurilmani
+      // ro'yxatdan chiqarib, o'rniga shuni qo'yamiz \u2014 bir vaqtning o'zida
+      // baribir ${QURILMA_LIMIT} tadan ortiq qurilma ishlay olmaydi.
+      const eng = [...qurilmalar].sort((a, b) => String(a.last_at || '').localeCompare(String(b.last_at || '')));
+      for (const q of eng.slice(0, qurilmalar.length - QURILMA_LIMIT + 1)) {
+        await run(sb.from('student_devices').delete().eq('id', q.id));
+      }
     }
     await run(sb.from('student_devices').insert({ student_id: st.id, device_id: dev, device_name: nom }));
     // Xodimlar ro'yxatida oxirgi qurilma ko'rinib tursin

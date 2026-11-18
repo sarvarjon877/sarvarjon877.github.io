@@ -289,7 +289,7 @@ function renderLogin() {
         <div>
           <label class="block text-xs font-semibold text-slate-500 mb-1.5">Telefon raqamingiz</label>
           <input name="phone" type="text" inputmode="tel" data-mask="tel" value="+998 " required class="${inputCls}" placeholder="+998 90 123 45 67">
-          <div class="mt-1.5 text-[11px] text-slate-400">Ro'yxatdan o'tgan raqamingizni kiriting — kod kerak emas</div>
+          <div class="mt-1.5 text-[11px] text-slate-400">Kirish kodi SMS orqali yuboriladi</div>
         </div>
         <button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition">Kirish</button>`;
       const inp = $('[data-mask="tel"]', area);
@@ -334,16 +334,36 @@ function renderLogin() {
     const unBusy = (t) => { btn.disabled = false; btn.textContent = t; };
 
     // === O'QUVCHI ===
-    // Kod yo'q: raqamni kiritdi — kirdi. Barcha tekshiruvlar (ro'yxatda bormi,
-    // bloklanganmi, muddati, qurilma) server tomonda `sms` funksiyasida bajariladi.
+    // Odatda: raqam -> SMS kod -> kirish.
+    // Istisno: sms_config.otpsiz_raqamlar ro'yxatidagi raqamlar kodsiz kiradi —
+    // bunda server `direct` bayrog'i bilan sessiyani darhol qaytaradi.
     if (selectedRole === 'oquvchi') {
-      const digits = onlyDigits(fd.get('phone')).slice(-9);
-      if (digits.length < 9) { toast("Telefon raqamini to'liq kiriting", 'error'); return; }
-      setBusy('Kirilmoqda...');
-      const res = await smsCall('student-login', { phone: digits, device_id: deviceId(), device_name: deviceName() });
+      if (stage === 'input') {
+        const digits = onlyDigits(fd.get('phone')).slice(-9);
+        if (digits.length < 9) { toast("Telefon raqamini to'liq kiriting", 'error'); return; }
+        setBusy('Yuborilmoqda...');
+        const res = await smsCall('send-otp', { phone: digits, device_id: deviceId(), device_name: deviceName() });
+        if (!res?.ok) { toast(res?.message || 'Kod yuborilmadi', 'error'); unBusy('Kirish'); return; }
+        // Kodsiz kirish
+        if (res.direct && res.session && res.student) {
+          try {
+            await sb.auth.setSession(res.session);
+            localStorage.setItem('finway_student', JSON.stringify(res.student));
+            await loadCenterName();
+            renderStudentApp(res.student, centerName);
+          } catch { unBusy('Kirish'); }
+          return;
+        }
+        otpPhone = digits; otpName = res?.name || ''; stage = 'otp'; drawAuth(showHintForTest(res));
+        return;
+      }
+      // stage otp — kod to'g'ri bo'lsa server sessiya bilan birga o'quvchini ham qaytaradi
+      setBusy('Tekshirilmoqda...');
+      const code = String(fd.get('code') || '').trim();
+      const res = await smsCall('verify-otp', { phone: otpPhone, code, student: true, device_id: deviceId(), device_name: deviceName() });
       if (!res?.ok || !res.session || !res.student) {
-        toast(res?.message || 'Kirish amalga oshmadi', 'error');
-        unBusy('Kirish');
+        toast(res?.message || "Kod noto'g'ri", 'error');
+        unBusy('Tasdiqlash');
         return;
       }
       try {
@@ -352,7 +372,7 @@ function renderLogin() {
         await loadCenterName();
         renderStudentApp(res.student, centerName);
       } catch {
-        unBusy('Kirish');
+        unBusy('Tasdiqlash');
       }
       return;
     }

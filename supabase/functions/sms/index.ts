@@ -83,7 +83,7 @@ async function isStaffPhone(phone: string): Promise<boolean> {
   const { data: st } = await admin.from('settings').select('phone_direktor, phone_moliyachi, phone_admin, phone_oqituvchi').single();
   if (!st) return false;
   return ['phone_direktor', 'phone_moliyachi', 'phone_admin', 'phone_oqituvchi']
-    .some((k) => st[k] && last9(String(st[k])) === last9(phone));
+    .some((k) => (st as any)[k] && last9(String((st as any)[k])) === last9(phone));
 }
 
 Deno.serve(async (req) => {
@@ -127,6 +127,67 @@ Deno.serve(async (req) => {
     const via = status === 'yuborildi' ? 'sms' : null;
     // Ism qaytadi — kod ekranida "Xush kelibsiz, ..." ko'rsatish uchun
     return json({ ok: true, via, name: fullName(student) || null, test: status === 'test', code: status === 'test' ? code : undefined });
+  }
+
+  // --- O'quvchi kirishi: faqat telefon raqami (SMS kod talab qilinmaydi) ---
+  // Himoya kodda emas, qurilmada: hisob birinchi kirgan qurilmaga biriktiriladi.
+  // Tekshiruvlarning hammasi shu yerda — mijozga ishonmaymiz.
+  if (action === 'student-login') {
+    const phone = normPhone(body.phone || '');
+    if (phone.length < 12) return json({ ok: false, error: 'phone', message: 'Telefon raqami noto\'g\'ri' });
+
+    const { data: blk } = await admin.from('blocked_numbers').select('phone').eq('phone', phone).maybeSingle();
+    if (blk) return json({ ok: false, error: 'blocked', message: 'Bu raqam bloklangan. Administrator bilan bog\'laning.' });
+
+    const { data: studs } = await admin.from('students')
+      .select('id,first_name,last_name,phone,status,blocked,mode,access_until,device_id,device_name')
+      .not('phone', 'is', null);
+    const matches = (studs || []).filter((s: any) => last9(s.phone) === last9(phone));
+    const student: any = matches.find((s: any) => s.status !== 'arxiv');
+    if (!student) {
+      return json({
+        ok: false,
+        error: matches.length ? 'archived' : 'notfound',
+        message: matches.length
+          ? 'Bu raqam arxivda. Administrator bilan bog\'laning.'
+          : 'Bu raqam tizimda ro\'yxatdan o\'tmagan. Administrator bilan bog\'laning.',
+      });
+    }
+    if (student.blocked) {
+      return json({ ok: false, error: 'blocked', message: '🔒 Akkauntingiz bloklangan (to\'lov muddati o\'tgan). Administrator bilan bog\'laning.' });
+    }
+
+    const online = student.mode === 'onlayn' || student.mode === 'aralash';
+    const bugun = new Date().toISOString().slice(0, 10);
+    if (online && student.access_until && student.access_until < bugun) {
+      return json({ ok: false, error: 'expired', message: '⏳ Onlayn kirish muddatingiz tugagan. To\'lovni yangilash uchun administrator bilan bog\'laning.' });
+    }
+
+    // Qurilma: bo'sh bo'lsa biriktiramiz, boshqasi bo'lsa kiritmaymiz
+    const dev = String(body.device_id || '').slice(0, 80);
+    if (online && dev) {
+      if (!student.device_id) {
+        await admin.from('students')
+          .update({ device_id: dev, device_name: String(body.device_name || '').slice(0, 40) || null, device_at: new Date().toISOString() })
+          .eq('id', student.id);
+        student.device_id = dev;
+      } else if (student.device_id !== dev) {
+        return json({
+          ok: false,
+          error: 'device',
+          message: `📱 Bu hisob boshqa qurilmaga (${student.device_name || 'telefon'}) biriktirilgan. Yangi qurilmadan kirish uchun administratorga murojaat qiling.`,
+        });
+      }
+    }
+
+    const anon = createClient(SUPABASE_URL, ANON_KEY);
+    const { data: si, error } = await anon.auth.signInWithPassword({ email: STUDENT_EMAIL, password: STUDENT_PASSWORD });
+    if (error || !si?.session) return json({ ok: false, error: 'session', message: 'Sessiya xatosi' });
+    return json({
+      ok: true,
+      session: { access_token: si.session.access_token, refresh_token: si.session.refresh_token },
+      student,
+    });
   }
 
   if (action === 'verify-otp') {

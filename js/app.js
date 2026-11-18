@@ -289,9 +289,9 @@ function renderLogin() {
         <div>
           <label class="block text-xs font-semibold text-slate-500 mb-1.5">Telefon raqamingiz</label>
           <input name="phone" type="text" inputmode="tel" data-mask="tel" value="+998 " required class="${inputCls}" placeholder="+998 90 123 45 67">
-          <div class="mt-1.5 text-[11px] text-slate-400">Kirish kodi SMS orqali yuboriladi</div>
+          <div class="mt-1.5 text-[11px] text-slate-400">Kirish kodi Telegram (yoki SMS) orqali yuboriladi</div>
         </div>
-        <button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition">Kirish</button>`;
+        <button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition">📩 Kod olish</button>`;
       const inp = $('[data-mask="tel"]', area);
       if (inp) {
         inp.addEventListener('focus', () => { if (!inp.value) inp.value = '+998 '; });
@@ -334,46 +334,33 @@ function renderLogin() {
     const unBusy = (t) => { btn.disabled = false; btn.textContent = t; };
 
     // === O'QUVCHI ===
-    // Odatda: raqam -> SMS kod -> kirish.
-    // Istisno: sms_config.otpsiz_raqamlar ro'yxatidagi raqamlar kodsiz kiradi —
-    // bunda server `direct` bayrog'i bilan sessiyani darhol qaytaradi.
     if (selectedRole === 'oquvchi') {
       if (stage === 'input') {
         const digits = onlyDigits(fd.get('phone')).slice(-9);
-        if (digits.length < 9) { toast("Telefon raqamini to'liq kiriting", 'error'); return; }
+        if (digits.length < 9) { toast('Telefon raqamini to\'liq kiriting', 'error'); return; }
         setBusy('Yuborilmoqda...');
-        const res = await smsCall('send-otp', { phone: digits, device_id: deviceId(), device_name: deviceName() });
-        if (!res?.ok) { toast(res?.message || 'Kod yuborilmadi', 'error'); unBusy('Kirish'); return; }
-        // Kodsiz kirish
-        if (res.direct && res.session && res.student) {
-          try {
-            await sb.auth.setSession(res.session);
-            localStorage.setItem('finway_student', JSON.stringify(res.student));
-            await loadCenterName();
-            renderStudentApp(res.student, centerName);
-          } catch { unBusy('Kirish'); }
-          return;
-        }
+        const res = await smsCall('send-otp', { phone: digits });
+        if (!res?.ok) { toast(res?.message || 'Kod yuborilmadi', 'error'); unBusy('📩 Kod olish'); return; }
         otpPhone = digits; otpName = res?.name || ''; stage = 'otp'; drawAuth(showHintForTest(res));
         return;
       }
-      // stage otp — kod to'g'ri bo'lsa server sessiya bilan birga o'quvchini ham qaytaradi
+      // stage otp
       setBusy('Tekshirilmoqda...');
       const code = String(fd.get('code') || '').trim();
-      const res = await smsCall('verify-otp', { phone: otpPhone, code, student: true, device_id: deviceId(), device_name: deviceName() });
-      if (!res?.ok || !res.session || !res.student) {
-        toast(res?.message || "Kod noto'g'ri", 'error');
-        unBusy('Tasdiqlash');
-        return;
-      }
+      const res = await smsCall('verify-otp', { phone: otpPhone, code, student: true });
+      if (!res?.ok || !res.session) { toast(res?.message || 'Kod noto\'g\'ri', 'error'); unBusy('Tasdiqlash'); return; }
+      await sb.auth.setSession(res.session);
       try {
-        await sb.auth.setSession(res.session);
-        localStorage.setItem('finway_student', JSON.stringify(res.student));
+        const students = await run(sb.from('students').select('id,first_name,last_name,phone,status,blocked,mode,access_until,device_id,device_name').not('status', 'in', '(arxiv)'));
+        const match = students.find((s) => onlyDigits(s.phone).slice(-9) === otpPhone);
+        if (!match) { toast('Bu raqam bilan o\'quvchi topilmadi. Administrator bilan bog\'laning.', 'error'); await sb.auth.signOut(); stage = 'input'; drawAuth(); return; }
+        if (match.blocked) { toast('🔒 Akkauntingiz bloklangan. To\'lov muddati o\'tgan — administrator bilan bog\'laning.', 'error'); await sb.auth.signOut(); stage = 'input'; drawAuth(); return; }
+        const acc = await checkStudentAccess(match);
+        if (!acc.ok) { toast(acc.message, 'error'); await sb.auth.signOut(); stage = 'input'; drawAuth(); return; }
+        localStorage.setItem('finway_student', JSON.stringify(match));
         await loadCenterName();
-        renderStudentApp(res.student, centerName);
-      } catch {
-        unBusy('Tasdiqlash');
-      }
+        renderStudentApp(match, centerName);
+      } catch { unBusy('Tasdiqlash'); }
       return;
     }
 

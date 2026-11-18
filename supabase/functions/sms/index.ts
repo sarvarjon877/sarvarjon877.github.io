@@ -83,66 +83,7 @@ async function isStaffPhone(phone: string): Promise<boolean> {
   const { data: st } = await admin.from('settings').select('phone_direktor, phone_moliyachi, phone_admin, phone_oqituvchi').single();
   if (!st) return false;
   return ['phone_direktor', 'phone_moliyachi', 'phone_admin', 'phone_oqituvchi']
-    .some((k) => (st as any)[k] && last9(String((st as any)[k])) === last9(phone));
-}
-
-// --- O'quvchini kiritish: barcha tekshiruv shu yerda ---
-// Kodsiz kirish (sms_config.otpsiz_raqamlar) va kod tasdiqlangandan keyingi kirish
-// ikkalasi ham shu funksiyadan o'tadi — qoida bitta joyda bo'lsin.
-async function studentDirectLogin(body: any, phone: string) {
-  const { data: blk } = await admin.from('blocked_numbers').select('phone').eq('phone', phone).maybeSingle();
-  if (blk) return { ok: false, error: 'blocked', message: 'Bu raqam bloklangan. Administrator bilan bog\'laning.' };
-
-  const { data: studs } = await admin.from('students')
-    .select('id,first_name,last_name,phone,status,blocked,mode,access_until,device_id,device_name')
-    .not('phone', 'is', null);
-  const matches = (studs || []).filter((s: any) => last9(s.phone) === last9(phone));
-  const student: any = matches.find((s: any) => s.status !== 'arxiv');
-  if (!student) {
-    return {
-      ok: false,
-      error: matches.length ? 'archived' : 'notfound',
-      message: matches.length
-        ? 'Bu raqam arxivda. Administrator bilan bog\'laning.'
-        : 'Bu raqam tizimda ro\'yxatdan o\'tmagan. Administrator bilan bog\'laning.',
-    };
-  }
-  if (student.blocked) {
-    return { ok: false, error: 'blocked', message: '🔒 Akkauntingiz bloklangan (to\'lov muddati o\'tgan). Administrator bilan bog\'laning.' };
-  }
-
-  const online = student.mode === 'onlayn' || student.mode === 'aralash';
-  const bugun = new Date().toISOString().slice(0, 10);
-  if (online && student.access_until && student.access_until < bugun) {
-    return { ok: false, error: 'expired', message: '⏳ Onlayn kirish muddatingiz tugagan. To\'lovni yangilash uchun administrator bilan bog\'laning.' };
-  }
-
-  // Qurilma: bo'sh bo'lsa biriktiramiz, boshqasi bo'lsa kiritmaymiz
-  const dev = String(body.device_id || '').slice(0, 80);
-  if (online && dev) {
-    if (!student.device_id) {
-      await admin.from('students')
-        .update({ device_id: dev, device_name: String(body.device_name || '').slice(0, 40) || null, device_at: new Date().toISOString() })
-        .eq('id', student.id);
-      student.device_id = dev;
-    } else if (student.device_id !== dev) {
-      return {
-        ok: false,
-        error: 'device',
-        message: `📱 Bu hisob boshqa qurilmaga (${student.device_name || 'telefon'}) biriktirilgan. Yangi qurilmadan kirish uchun administratorga murojaat qiling.`,
-      };
-    }
-  }
-
-  const anon = createClient(SUPABASE_URL, ANON_KEY);
-  const { data: si, error } = await anon.auth.signInWithPassword({ email: STUDENT_EMAIL, password: STUDENT_PASSWORD });
-  if (error || !si?.session) return { ok: false, error: 'session', message: 'Sessiya xatosi' };
-  return {
-    ok: true,
-    direct: true,
-    session: { access_token: si.session.access_token, refresh_token: si.session.refresh_token },
-    student,
-  };
+    .some((k) => st[k] && last9(String(st[k])) === last9(phone));
 }
 
 Deno.serve(async (req) => {
@@ -151,15 +92,10 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* ignore */ }
   const action = body.action;
   const cfg = await getConfig();
-  // Kodsiz kiradigan raqamlar (sms_config.otpsiz_raqamlar, vergul bilan)
-  const otpsizRoyxat = String(cfg?.otpsiz_raqamlar || '').split(',').map((x: string) => last9(x)).filter((x: string) => x.length === 9);
-  const kodsizmi = (p: string) => otpsizRoyxat.includes(last9(p));
 
   if (action === 'send-otp') {
     const phone = normPhone(body.phone || '');
     if (phone.length < 12) return json({ ok: false, error: 'phone', message: 'Telefon raqami noto\'g\'ri' });
-    // Kodsiz ro'yxatdagi raqam — SMS sarflamaymiz, to'g'ridan-to'g'ri sessiya beramiz
-    if (kodsizmi(phone)) return json(await studentDirectLogin(body, phone));
     const { data: blk } = await admin.from('blocked_numbers').select('phone').eq('phone', phone).maybeSingle();
     if (blk) return json({ ok: false, error: 'blocked', message: 'Bu raqam bloklangan. Administrator bilan bog\'laning.' });
 
@@ -193,14 +129,6 @@ Deno.serve(async (req) => {
     return json({ ok: true, via, name: fullName(student) || null, test: status === 'test', code: status === 'test' ? code : undefined });
   }
 
-  // O'quvchi kirishi. Kodsiz faqat ro'yxatdagi raqamlar uchun; qolganlari kod oladi.
-  if (action === 'student-login') {
-    const phone = normPhone(body.phone || '');
-    if (phone.length < 12) return json({ ok: false, error: 'phone', message: 'Telefon raqami noto\'g\'ri' });
-    if (!kodsizmi(phone)) return json({ ok: false, error: 'otp_required', message: 'Bu raqam uchun SMS kod talab qilinadi.' });
-    return json(await studentDirectLogin(body, phone));
-  }
-
   if (action === 'verify-otp') {
     const phone = normPhone(body.phone || '');
     const code = String(body.code || '').trim();
@@ -215,9 +143,12 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: 'wrong', message: 'Kod noto\'g\'ri' });
     }
     await admin.from('otp_codes').update({ used: true }).eq('id', row.id);
-    // Kod to'g'ri. Qolgan tekshiruvlar (blok, muddat, qurilma) kodsiz kirish bilan bir xil —
-    // shuning uchun bitta joyda, server tomonda bajariladi.
-    if (isStudent) return json(await studentDirectLogin(body, phone));
+    if (isStudent) {
+      const anon = createClient(SUPABASE_URL, ANON_KEY);
+      const { data: si, error } = await anon.auth.signInWithPassword({ email: STUDENT_EMAIL, password: STUDENT_PASSWORD });
+      if (error || !si?.session) return json({ ok: false, error: 'session', message: 'Sessiya xatosi' });
+      return json({ ok: true, session: { access_token: si.session.access_token, refresh_token: si.session.refresh_token } });
+    }
     return json({ ok: true });
   }
 

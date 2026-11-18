@@ -589,6 +589,12 @@ async function libDarslar(body, main) {
   const openLesson = async (l) => {
     if (l.locked) return;
     main.scrollTop = 0;
+    // Darsga biriktirilgan amaliy vazifa (bo'lsa)
+    const [vazifa, mening] = await Promise.all([
+      run(sb.from('tests').select('*').eq('lesson_id', l.id).eq('active', true).maybeSingle()),
+      run(sb.from('test_results').select('*').eq('student_id', S.student.id)),
+    ]);
+    const natija = vazifa ? (mening || []).find((x) => x.test_id === vazifa.id) : null;
     const done = doneSet.has(l.id);
     main.innerHTML = `
       <button id="libBack" class="mb-3 text-sm text-slate-400 hover:text-slate-200 font-medium">← Orqaga</button>
@@ -597,6 +603,9 @@ async function libDarslar(body, main) {
       ${l.duration_min ? `<div class="text-xs text-slate-400 mb-2">⏱ ${esc(libDur(l.duration_min))}</div>` : ''}
       ${l.description ? `<div class="text-sm text-slate-300 whitespace-pre-wrap mb-3 leading-relaxed">${esc(l.description)}</div>` : ''}
       ${l.pdf_url ? `<button id="libPdf" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-100 hover:bg-slate-700 text-sm font-semibold mb-3">📄 ${esc(l.pdf_name || 'Material (PDF)')}</button>` : ''}
+      ${vazifa ? `<button id="libVazifa" class="w-full mt-3 py-3.5 rounded-xl text-sm font-bold transition ${natija ? 'bg-indigo-500/15 border border-indigo-400/40 text-indigo-200' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}">
+        ${natija ? `✏️ Amaliy vazifa — ${natija.correct}/${natija.total} · qayta ishlash` : '✏️ Amaliy vazifani bajarish'}
+      </button>` : ''}
       <button id="libDone" class="w-full mt-2 py-3 rounded-xl text-sm font-bold transition ${done ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
         ${done ? '✓ Bu darsni ko\'rgansiz' : '✓ Darsni tugatdim'}
       </button>`;
@@ -649,6 +658,9 @@ async function libDarslar(body, main) {
         if (!doneSet.has(l.id) && await markLessonDone(l.id)) { doneSet.add(l.id); paintDone(); }
       };
     }
+
+    const vBtn = $('#libVazifa', main);
+    if (vBtn) vBtn.onclick = () => runVazifa(vazifa, main, () => openLesson(l));
 
     $('#libDone', main).onclick = async () => {
       if (doneSet.has(l.id)) return;
@@ -779,6 +791,107 @@ async function libUy(body) {
     await run(sb.from('homework_submissions').upsert({ homework_id: hid, student_id: S.student.id, answer: ans, grade: null, graded_at: null }, { onConflict: 'homework_id,student_id' }));
     toast('Topshirildi ✅'); drawTab();
   });
+}
+
+
+// --- Amaliy vazifa: har bir modda uchun bitta variant tanlanadi ---
+// Oxirida qaysi javob to'g'ri, qaysi biri xato ekani to'liq ko'rsatiladi
+// va natija xodimlar Telegram guruhiga yuboriladi.
+function runVazifa(test, main, onBack) {
+  const savollar = test.questions || [];
+  const variantlar = test.options || [];
+  const javoblar = new Array(savollar.length).fill(null);
+  let idx = 0;
+  const qisqa = (v) => String(variantlar[v] || '?').split('—')[0].trim();
+
+  const chiz = () => {
+    const q = savollar[idx];
+    const tanlangan = javoblar[idx];
+    main.scrollTop = 0;
+    main.innerHTML = `
+      <button id="vBack" class="mb-3 text-sm text-slate-400 hover:text-slate-200 font-medium">← Darsga qaytish</button>
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+        <span class="font-semibold text-slate-200 truncate pr-2">${esc(test.title)}</span>
+        <span class="shrink-0">${idx + 1} / ${savollar.length}</span>
+      </div>
+      <div class="h-2 rounded-full bg-slate-800 overflow-hidden mb-4">
+        <div class="h-full bg-indigo-500 transition-all" style="width:${(idx / savollar.length) * 100}%"></div>
+      </div>
+      ${test.description && idx === 0 ? `<div class="text-xs text-slate-400 mb-3 leading-relaxed">${esc(test.description)}</div>` : ''}
+      <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-5 mb-4 flex items-center" style="min-height:88px">
+        <div class="text-slate-100 font-semibold text-[16px] leading-snug">${esc(q.q)}</div>
+      </div>
+      <div class="space-y-2.5" id="vOpts">
+        ${variantlar.map((o, i) => `<button data-opt="${i}" class="w-full text-left px-4 py-3.5 rounded-xl border text-sm font-medium transition ${tanlangan === i ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800/70 border-slate-700 text-slate-200 hover:border-slate-500'}">${esc(o)}</button>`).join('')}
+      </div>
+      <div class="flex gap-2 mt-5">
+        ${idx > 0 ? '<button id="vPrev" class="flex-1 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-sm font-semibold">← Oldingi</button>' : ''}
+        <button id="vNext" class="flex-1 py-3 rounded-xl text-sm font-bold transition ${tanlangan === null ? 'bg-slate-800 text-slate-500 border border-slate-700' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}">
+          ${idx === savollar.length - 1 ? 'Yakunlash' : 'Keyingi →'}
+        </button>
+      </div>`;
+
+    $$('#vOpts [data-opt]', main).forEach((b) => b.onclick = () => {
+      javoblar[idx] = Number(b.dataset.opt);
+      chiz();
+    });
+    $('#vBack', main).onclick = onBack;
+    const prev = $('#vPrev', main);
+    if (prev) prev.onclick = () => { idx--; chiz(); };
+    $('#vNext', main).onclick = () => {
+      if (javoblar[idx] === null) return toast('Avval variantni tanlang', 'error');
+      if (idx < savollar.length - 1) { idx++; chiz(); } else yakunla();
+    };
+  };
+
+  async function yakunla() {
+    const togri = savollar.reduce((a, q, i) => a + (javoblar[i] === q.a ? 1 : 0), 0);
+    const foiz = savollar.length ? Math.round((togri / savollar.length) * 100) : 0;
+
+    main.scrollTop = 0;
+    main.innerHTML = `
+      <div class="text-center py-6">
+        <div class="text-5xl mb-2">${foiz >= 90 ? '🏆' : foiz >= 70 ? '👍' : foiz >= 50 ? '💪' : '📚'}</div>
+        <div class="text-xl font-black text-slate-100">Vazifa yakunlandi</div>
+        <div class="text-4xl font-black my-3 ${foiz >= 70 ? 'text-emerald-400' : foiz >= 50 ? 'text-amber-400' : 'text-rose-400'}">${togri}/${savollar.length} · ${foiz}%</div>
+        <div class="text-xs text-slate-400">Natija o'qituvchiga yuborildi</div>
+      </div>
+      <div class="space-y-2">
+        ${savollar.map((q, i) => {
+          const ok = javoblar[i] === q.a;
+          return `<div class="rounded-xl border p-3 ${ok ? 'border-emerald-700/40 bg-emerald-900/10' : 'border-rose-700/40 bg-rose-900/10'}">
+            <div class="flex gap-2">
+              <span class="shrink-0">${ok ? '✅' : '❌'}</span>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-semibold text-slate-100">${i + 1}. ${esc(q.q)}</div>
+                <div class="text-[12px] mt-1 ${ok ? 'text-emerald-300' : 'text-rose-300'}">
+                  ${ok ? `To'g'ri — ${esc(qisqa(q.a))}` : `Siz: ${esc(qisqa(javoblar[i]))} · To'g'risi: ${esc(qisqa(q.a))}`}
+                </div>
+                ${q.izoh ? `<div class="text-[12px] text-slate-400 mt-1.5 leading-relaxed">${esc(q.izoh)}</div>` : ''}
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="flex gap-2 mt-5">
+        <button id="vQayta" class="flex-1 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-sm font-semibold">Qayta ishlash</button>
+        <button id="vTugat" class="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">Darsga qaytish</button>
+      </div>`;
+
+    $('#vQayta', main).onclick = () => { javoblar.fill(null); idx = 0; chiz(); };
+    $('#vTugat', main).onclick = onBack;
+
+    try {
+      await run(sb.from('test_results').upsert(
+        { test_id: test.id, student_id: S.student.id, correct: togri, total: savollar.length, answers: javoblar, finished_at: new Date().toISOString() },
+        { onConflict: 'test_id,student_id' },
+      ));
+      sb.functions.invoke('vazifa-natija', { body: { test_id: test.id, student_id: S.student.id } })
+        .catch(() => { /* bildirishnoma bo'lmasa ham natija saqlangan */ });
+    } catch { /* saqlanmasa ham o'quvchi natijani ko'rib turibdi */ }
+  }
+
+  chiz();
 }
 
 const shuffleArr = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };

@@ -843,13 +843,15 @@ async function libUy(body) {
 // Ikki xil savol bor:
 //   • variantli  — o'quvchi tayyor javoblardan birini tanlaydi (A / M / XK / X kabi);
 //   • raqamli (tur: 'son') — o'quvchi summani o'zi yozadi.
-// Tepada taymer turadi, istalgan savolni o'tkazib yuborish mumkin, oxirida
-// har bir savol bo'yicha to'liq tahlil chiqadi va natija xodimlar guruhiga ketadi.
-// Yechish vaqtida ilovadan chiqib ketilsa — bu sanaladi va darhol xabar beriladi.
+// Javob berilgan zahoti to'g'ri-noto'g'ri ekani va NEGA shundayligi shu yerda
+// yoziladi — o'quvchi oxirigacha kutmaydi. Tepada taymer, savolni o'tkazib
+// yuborish mumkin. Yakunda hammasi yana bir bor jamlanadi va natija xodimlar
+// guruhiga ketadi. Yechish vaqtida ilovadan chiqib ketilsa — darhol xabar beriladi.
 function runVazifa(test, main, onBack) {
   const savollar = test.questions || [];
   const umumiyVariantlar = test.options || [];
   const javoblar = new Array(savollar.length).fill(null);
+  const tekshirilgan = new Array(savollar.length).fill(false);
   const limitSek = Number(test.time_limit) > 0 ? Number(test.time_limit) * 60 : 0;
 
   let idx = 0;
@@ -869,11 +871,11 @@ function runVazifa(test, main, onBack) {
     return t === '' || Number.isNaN(n) ? null : n;
   };
   const sonYoz = (n) => (n == null ? '—' : Number(n).toLocaleString('ru-RU').replace(/,/g, ' '));
+  const korinish = (q, v) => (sonli(q) ? sonYoz(v) : belgi(q, v));
   const togrimi = (q, javob) => {
     if (javob === null || javob === undefined) return false;
     if (!sonli(q)) return javob === q.a;
-    const farq = Math.abs(Number(javob) - Number(q.a));
-    return farq <= Number(q.xato || 0);
+    return Math.abs(Number(javob) - Number(q.a)) <= Number(q.xato || 0);
   };
   const javobsizlar = () => javoblar.reduce((a, v) => a + (v === null ? 1 : 0), 0);
   const vaqt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -924,10 +926,33 @@ function runVazifa(test, main, onBack) {
     timerId = setInterval(yoz, 1000);
   };
 
+  // Javobdan keyingi tahlil — nega to'g'ri yoki nega noto'g'ri
+  const tahlilBloki = (q) => {
+    const ok = togrimi(q, javoblar[idx]);
+    const meniki = korinish(q, javoblar[idx]);
+    const togrisi = korinish(q, q.a);
+    return `<div class="rounded-2xl border p-4 mt-4 ${ok ? 'border-emerald-500/40 bg-emerald-900/15' : 'border-rose-500/40 bg-rose-900/15'}">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl leading-none">${ok ? '✅' : '❌'}</span>
+        <span class="font-black text-[15px] ${ok ? 'text-emerald-300' : 'text-rose-300'}">${ok ? "To'g'ri javob" : "Noto'g'ri"}</span>
+      </div>
+      <div class="text-[13px] mt-2 ${ok ? 'text-emerald-200/90' : 'text-slate-200'}">
+        ${ok
+          ? `Javobingiz: <b>${esc(togrisi)}</b>`
+          : `Siz yozdingiz: <b class="text-rose-300">${esc(meniki)}</b> · To'g'ri javob: <b class="text-emerald-300">${esc(togrisi)}</b>`}
+      </div>
+      ${q.izoh ? `<div class="mt-3 pt-3 border-t ${ok ? 'border-emerald-500/20' : 'border-rose-500/20'}">
+        <div class="text-[11px] font-bold uppercase tracking-wider ${ok ? 'text-emerald-400/70' : 'text-rose-400/70'} mb-1.5">Nega shunday</div>
+        <div class="text-[13px] text-slate-300 leading-relaxed whitespace-pre-line">${esc(q.izoh)}</div>
+      </div>` : ''}
+    </div>`;
+  };
+
   // --- Savol ekrani ---
   const chiz = () => {
     const q = savollar[idx];
     const tanlangan = javoblar[idx];
+    const ochildi = tekshirilgan[idx];
     const variantlar = variantlarFor(q);
     main.scrollTop = 0;
     main.innerHTML = `
@@ -952,60 +977,85 @@ function runVazifa(test, main, onBack) {
           <div class="text-slate-100 font-semibold text-[16px] leading-snug">${esc(q.q)}</div>
         </div>
         ${sonli(q) ? `
-          <div class="mb-1">
-            <div class="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-3.5 focus-within:border-indigo-400 transition">
-              <input id="vSon" inputmode="decimal" autocomplete="off" value="${tanlangan == null ? '' : esc(String(tanlangan))}"
-                     class="flex-1 min-w-0 bg-transparent outline-none text-slate-100 text-lg font-bold tabular-nums" placeholder="0">
-              ${q.birlik ? `<span class="text-xs text-slate-400 shrink-0">${esc(q.birlik)}</span>` : ''}
-            </div>
-            ${q.izoh_old ? `<div class="mt-2 text-[11px] text-slate-500 leading-relaxed">${esc(q.izoh_old)}</div>` : ''}
+          <div class="flex items-center gap-2 rounded-xl border px-4 py-3.5 transition ${ochildi ? 'border-slate-700 bg-slate-900/60' : 'border-slate-700 bg-slate-800/70 focus-within:border-indigo-400'}">
+            <input id="vSon" inputmode="decimal" autocomplete="off" ${ochildi ? 'disabled' : ''} value="${tanlangan == null ? '' : esc(String(tanlangan))}"
+                   class="flex-1 min-w-0 bg-transparent outline-none text-lg font-bold tabular-nums ${ochildi ? 'text-slate-400' : 'text-slate-100'}" placeholder="0">
+            ${q.birlik ? `<span class="text-xs text-slate-400 shrink-0">${esc(q.birlik)}</span>` : ''}
           </div>
+          ${q.izoh_old && !ochildi ? `<div class="mt-2 text-[11px] text-slate-500 leading-relaxed">${esc(q.izoh_old)}</div>` : ''}
         ` : `
           <div class="space-y-2.5" id="vOpts">
-            ${variantlar.map((o, i) => `<button data-opt="${i}" class="w-full text-left px-4 py-3.5 rounded-xl border text-sm font-medium transition ${tanlangan === i ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800/70 border-slate-700 text-slate-200 hover:border-slate-500'}">${esc(o)}</button>`).join('')}
+            ${variantlar.map((o, i) => {
+              let cls = 'bg-slate-800/70 border-slate-700 text-slate-200 hover:border-slate-500';
+              let nishon = '';
+              if (ochildi) {
+                if (i === q.a) { cls = 'bg-emerald-600/20 border-emerald-500/60 text-emerald-100'; nishon = '✓'; }
+                else if (i === tanlangan) { cls = 'bg-rose-600/20 border-rose-500/60 text-rose-100'; nishon = '✕'; }
+                else cls = 'bg-slate-800/40 border-slate-800 text-slate-500';
+              } else if (tanlangan === i) {
+                cls = 'bg-indigo-600 border-indigo-500 text-white';
+              }
+              return `<button data-opt="${i}" ${ochildi ? 'disabled' : ''} class="w-full flex items-center gap-2 text-left px-4 py-3.5 rounded-xl border text-sm font-medium transition ${cls}">
+                <span class="flex-1 min-w-0">${esc(o)}</span>
+                ${nishon ? `<span class="shrink-0 font-black">${nishon}</span>` : ''}
+              </button>`;
+            }).join('')}
           </div>
         `}
+        ${ochildi ? tahlilBloki(q) : ''}
         <div class="flex gap-2 mt-5">
           ${idx > 0 ? '<button id="vPrev" class="px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-sm font-semibold shrink-0">←</button>' : ''}
-          <button id="vSkip" class="px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm font-semibold shrink-0">O'tkazish</button>
-          <button id="vNext" class="flex-1 py-3 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition">
-            ${idx === savollar.length - 1 ? 'Yakunlash' : 'Keyingi →'}
-          </button>
+          ${ochildi ? '' : '<button id="vSkip" class="px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm font-semibold shrink-0">O\'tkazish</button>'}
+          ${!ochildi && sonli(q)
+            ? '<button id="vCheck" class="flex-1 py-3 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition">Tekshirish</button>'
+            : `<button id="vNext" class="flex-1 py-3 rounded-xl text-sm font-bold ${ochildi ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-800 border border-slate-700 text-slate-500'} transition">
+                 ${idx === savollar.length - 1 ? 'Yakunlash' : 'Keyingi →'}
+               </button>`}
         </div>
         <div class="flex flex-wrap gap-1.5 mt-5 pt-4 border-t border-white/10">
-          ${savollar.map((_, i) => {
-            const bor = javoblar[i] !== null;
+          ${savollar.map((qq, i) => {
             const shu = i === idx;
-            return `<button data-jump="${i}" class="w-8 h-8 rounded-lg text-[11px] font-bold transition ${shu ? 'bg-indigo-500 text-white' : bor ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-500 border border-slate-700'}">${i + 1}</button>`;
+            let cls = 'bg-slate-800 text-slate-500 border border-slate-700';
+            if (tekshirilgan[i]) cls = togrimi(qq, javoblar[i]) ? 'bg-emerald-500/25 text-emerald-300' : 'bg-rose-500/25 text-rose-300';
+            if (shu) cls = 'bg-indigo-500 text-white';
+            return `<button data-jump="${i}" class="w-8 h-8 rounded-lg text-[11px] font-bold transition ${cls}">${i + 1}</button>`;
           }).join('')}
         </div>
       </div>`;
 
-    const saqla = () => {
-      if (!sonli(savollar[idx])) return;
-      const el = $('#vSon', main);
-      if (el) javoblar[idx] = sonOqi(el.value);
+    const keyingi = () => {
+      if (idx < savollar.length - 1) { idx++; chiz(); } else yakunla();
     };
 
     $$('#vOpts [data-opt]', main).forEach((b) => b.onclick = () => {
+      if (tekshirilgan[idx]) return;
       javoblar[idx] = Number(b.dataset.opt);
-      if (idx < savollar.length - 1) { idx++; chiz(); } else chiz();
+      tekshirilgan[idx] = true;
+      chiz();
     });
-    $$('[data-jump]', main).forEach((b) => b.onclick = () => { saqla(); idx = Number(b.dataset.jump); chiz(); });
+    $$('[data-jump]', main).forEach((b) => b.onclick = () => { idx = Number(b.dataset.jump); chiz(); });
     $('#vBack', main).onclick = chiqish;
     const prev = $('#vPrev', main);
-    if (prev) prev.onclick = () => { saqla(); idx--; chiz(); };
-    $('#vSkip', main).onclick = () => {
-      javoblar[idx] = null;
-      if (idx < savollar.length - 1) { idx++; chiz(); } else yakunla();
+    if (prev) prev.onclick = () => { idx--; chiz(); };
+    const skip = $('#vSkip', main);
+    if (skip) skip.onclick = () => { javoblar[idx] = null; keyingi(); };
+    const check = $('#vCheck', main);
+    if (check) check.onclick = () => {
+      const el = $('#vSon', main);
+      const son = sonOqi(el ? el.value : '');
+      if (son === null) { toast('Avval javobni yozing', 'error'); return; }
+      javoblar[idx] = son;
+      tekshirilgan[idx] = true;
+      chiz();
     };
-    $('#vNext', main).onclick = () => {
-      saqla();
-      if (idx < savollar.length - 1) { idx++; chiz(); } else yakunla();
+    const next = $('#vNext', main);
+    if (next) next.onclick = () => {
+      if (!tekshirilgan[idx]) { toast('Avval javobni tanlang', 'error'); return; }
+      keyingi();
     };
     const son = $('#vSon', main);
-    if (son) {
-      son.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#vNext', main).click(); } };
+    if (son && !ochildi) {
+      son.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); const c = $('#vCheck', main); if (c) c.click(); } };
       setTimeout(() => son.focus(), 40);
     }
     taymerniYur();
@@ -1036,8 +1086,8 @@ function runVazifa(test, main, onBack) {
         ${savollar.map((q, i) => {
           const ok = togrimi(q, javoblar[i]);
           const bosh = javoblar[i] === null;
-          const meniki = sonli(q) ? sonYoz(javoblar[i]) : belgi(q, javoblar[i]);
-          const togrisi = sonli(q) ? sonYoz(q.a) : belgi(q, q.a);
+          const meniki = korinish(q, javoblar[i]);
+          const togrisi = korinish(q, q.a);
           return `<div class="rounded-xl border p-3 ${ok ? 'border-emerald-700/40 bg-emerald-900/10' : bosh ? 'border-slate-700 bg-white/[0.02]' : 'border-rose-700/40 bg-rose-900/10'}">
             <div class="flex gap-2">
               <span class="shrink-0">${ok ? '✅' : bosh ? '⬜️' : '❌'}</span>
@@ -1046,7 +1096,7 @@ function runVazifa(test, main, onBack) {
                 <div class="text-[12px] mt-1 ${ok ? 'text-emerald-300' : bosh ? 'text-slate-400' : 'text-rose-300'}">
                   ${ok ? `To'g'ri — ${esc(togrisi)}` : bosh ? `Javobsiz qoldi · To'g'risi: ${esc(togrisi)}` : `Siz: ${esc(meniki)} · To'g'risi: ${esc(togrisi)}`}
                 </div>
-                ${q.izoh ? `<div class="text-[12px] text-slate-400 mt-1.5 leading-relaxed">${esc(q.izoh)}</div>` : ''}
+                ${q.izoh ? `<div class="text-[12px] text-slate-400 mt-1.5 leading-relaxed whitespace-pre-line">${esc(q.izoh)}</div>` : ''}
               </div>
             </div>
           </div>`;

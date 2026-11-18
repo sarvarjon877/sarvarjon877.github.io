@@ -590,11 +590,11 @@ async function libDarslar(body, main) {
     if (l.locked) return;
     main.scrollTop = 0;
     // Darsga biriktirilgan amaliy vazifa (bo'lsa)
-    const [vazifa, mening] = await Promise.all([
-      run(sb.from('tests').select('*').eq('lesson_id', l.id).eq('active', true).maybeSingle()),
+    const [vazifalar, mening] = await Promise.all([
+      run(sb.from('tests').select('*').eq('lesson_id', l.id).eq('active', true).order('tartib').order('created_at')),
       run(sb.from('test_results').select('*').eq('student_id', S.student.id)),
     ]);
-    const natija = vazifa ? (mening || []).find((x) => x.test_id === vazifa.id) : null;
+    const natijaOf = (t) => (mening || []).find((x) => x.test_id === t.id);
     const done = doneSet.has(l.id);
     main.innerHTML = `
       <button id="libBack" class="mb-3 text-sm text-slate-400 hover:text-slate-200 font-medium">← Orqaga</button>
@@ -603,9 +603,24 @@ async function libDarslar(body, main) {
       ${l.duration_min ? `<div class="text-xs text-slate-400 mb-2">⏱ ${esc(libDur(l.duration_min))}</div>` : ''}
       ${l.description ? `<div class="text-sm text-slate-300 whitespace-pre-wrap mb-3 leading-relaxed">${esc(l.description)}</div>` : ''}
       ${l.pdf_url ? `<button id="libPdf" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-100 hover:bg-slate-700 text-sm font-semibold mb-3">📄 ${esc(l.pdf_name || 'Material (PDF)')}</button>` : ''}
-      ${vazifa ? `<button id="libVazifa" class="w-full mt-3 py-3.5 rounded-xl text-sm font-bold transition ${natija ? 'bg-indigo-500/15 border border-indigo-400/40 text-indigo-200' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}">
-        ${natija ? `✏️ Amaliy vazifa — ${natija.correct}/${natija.total} · qayta ishlash` : '✏️ Amaliy vazifani bajarish'}
-      </button>` : ''}
+      ${(vazifalar || []).length ? `<div class="mt-4">
+        <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Amaliy vazifalar</div>
+        <div class="space-y-2">
+          ${vazifalar.map((t, i) => {
+            const r = natijaOf(t);
+            const foiz = r && r.total ? Math.round((r.correct / r.total) * 100) : null;
+            const soni = (t.questions || []).length;
+            return `<button data-vazifa="${t.id}" class="w-full text-left px-3.5 py-3 rounded-xl border transition flex items-center gap-3 ${r ? 'bg-white/[0.03] border-white/10 hover:border-indigo-400/50' : 'bg-indigo-600/10 border-indigo-500/40 hover:bg-indigo-600/20'}">
+              <span class="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-sm font-bold ${r ? 'bg-emerald-500/20 text-emerald-300' : 'bg-indigo-500/25 text-indigo-200'}">${r ? '✓' : i + 1}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold text-slate-100 truncate">${esc(t.title)}</span>
+                <span class="block text-[11px] ${r ? 'text-emerald-300/80' : 'text-indigo-300/80'}">${r ? `${r.correct}/${r.total} · ${foiz}% · qayta ishlash` : `${soni} ta savol${t.time_limit ? ` · ${t.time_limit} daqiqa` : ''}`}</span>
+              </span>
+              <span class="text-slate-500 shrink-0">›</span>
+            </button>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
       <button id="libDone" class="w-full mt-2 py-3 rounded-xl text-sm font-bold transition ${done ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
         ${done ? '✓ Bu darsni ko\'rgansiz' : '✓ Darsni tugatdim'}
       </button>`;
@@ -659,8 +674,10 @@ async function libDarslar(body, main) {
       };
     }
 
-    const vBtn = $('#libVazifa', main);
-    if (vBtn) vBtn.onclick = () => runVazifa(vazifa, main, () => openLesson(l));
+    $$('[data-vazifa]', main).forEach((b) => b.onclick = () => {
+      const t = (vazifalar || []).find((x) => x.id === b.dataset.vazifa);
+      if (t) runVazifa(t, main, () => openLesson(l));
+    });
 
     $('#libDone', main).onclick = async () => {
       if (doneSet.has(l.id)) return;
@@ -794,78 +811,212 @@ async function libUy(body) {
 }
 
 
-// --- Amaliy vazifa: har bir modda uchun bitta variant tanlanadi ---
-// Oxirida qaysi javob to'g'ri, qaysi biri xato ekani to'liq ko'rsatiladi
-// va natija xodimlar Telegram guruhiga yuboriladi.
+// --- Amaliy vazifa ---
+// Ikki xil savol bor:
+//   • variantli  — o'quvchi tayyor javoblardan birini tanlaydi (A / M / XK / X kabi);
+//   • raqamli (tur: 'son') — o'quvchi summani o'zi yozadi.
+// Tepada taymer turadi, istalgan savolni o'tkazib yuborish mumkin, oxirida
+// har bir savol bo'yicha to'liq tahlil chiqadi va natija xodimlar guruhiga ketadi.
+// Yechish vaqtida ilovadan chiqib ketilsa — bu sanaladi va darhol xabar beriladi.
 function runVazifa(test, main, onBack) {
   const savollar = test.questions || [];
-  const variantlar = test.options || [];
+  const umumiyVariantlar = test.options || [];
   const javoblar = new Array(savollar.length).fill(null);
-  let idx = 0;
-  const qisqa = (v) => String(variantlar[v] || '?').split('—')[0].trim();
+  const limitSek = Number(test.time_limit) > 0 ? Number(test.time_limit) * 60 : 0;
 
+  let idx = 0;
+  let tugadi = false;
+  let chiqishSoni = 0;      // ilovadan necha marta chiqib ketdi
+  let xabarYuborildi = false;
+  let timerId = null;
+  const boshlandi = Date.now();
+
+  const sonli = (q) => q.tur === 'son';
+  const variantlarFor = (q) => (Array.isArray(q.options) && q.options.length ? q.options : umumiyVariantlar);
+  // "A — aktiv" dan faqat "A" ni olamiz — tahlilda qisqa ko'rinsin
+  const belgi = (q, v) => String(variantlarFor(q)[v] ?? '?').split('—')[0].trim();
+  const sonOqi = (v) => {
+    const t = String(v ?? '').replace(/[\s ]/g, '').replace(',', '.');
+    const n = Number(t);
+    return t === '' || Number.isNaN(n) ? null : n;
+  };
+  const sonYoz = (n) => (n == null ? '—' : Number(n).toLocaleString('ru-RU').replace(/,/g, ' '));
+  const togrimi = (q, javob) => {
+    if (javob === null || javob === undefined) return false;
+    if (!sonli(q)) return javob === q.a;
+    const farq = Math.abs(Number(javob) - Number(q.a));
+    return farq <= Number(q.xato || 0);
+  };
+  const javobsizlar = () => javoblar.reduce((a, v) => a + (v === null ? 1 : 0), 0);
+  const vaqt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
+  // --- Ilovadan chiqib ketishni kuzatish ---
+  // Ekrandan rasm olishni brauzer taqiqlay olmaydi, lekin boshqa ilovaga
+  // o'tib ketganini bilamiz — birinchisida darhol guruhga xabar ketadi.
+  const kuzat = () => {
+    if (tugadi || document.visibilityState !== 'hidden') return;
+    chiqishSoni++;
+    if (xabarYuborildi) return;
+    xabarYuborildi = true;
+    sb.functions.invoke('vazifa-natija', {
+      body: { type: 'tark-etdi', test_id: test.id, student_id: S.student.id },
+    }).catch(() => { /* xabar ketmasa ham yechish to'xtamaydi */ });
+  };
+  document.addEventListener('visibilitychange', kuzat);
+  const kuzatuvniTo = () => {
+    tugadi = true;
+    document.removeEventListener('visibilitychange', kuzat);
+    if (timerId) { clearInterval(timerId); timerId = null; }
+  };
+  const chiqish = () => { kuzatuvniTo(); onBack(); };
+
+  const suvBelgisi = () => {
+    const ism = [S.student?.first_name, S.student?.last_name].filter(Boolean).join(' ');
+    return `<div class="pointer-events-none select-none fixed inset-0 flex items-center justify-center" style="z-index:5">
+      <div class="text-[13px] font-semibold" style="color:rgba(255,255,255,.055); transform:rotate(-24deg)">${esc(ism)} · ${esc(S.student?.phone || '')}</div>
+    </div>`;
+  };
+
+  const taymerniYur = () => {
+    if (timerId) clearInterval(timerId);
+    const yoz = () => {
+      const el = $('#vTimer', main);
+      if (!el) return;
+      const otgan = Math.floor((Date.now() - boshlandi) / 1000);
+      if (limitSek) {
+        const qolgan = limitSek - otgan;
+        if (qolgan <= 0) { el.textContent = '00:00'; yakunla(true); return; }
+        el.textContent = vaqt(qolgan);
+        el.className = `text-[13px] font-bold tabular-nums ${qolgan <= 60 ? 'text-rose-300' : qolgan <= 180 ? 'text-amber-300' : 'text-slate-200'}`;
+      } else {
+        el.textContent = vaqt(otgan);
+      }
+    };
+    yoz();
+    timerId = setInterval(yoz, 1000);
+  };
+
+  // --- Savol ekrani ---
   const chiz = () => {
     const q = savollar[idx];
     const tanlangan = javoblar[idx];
+    const variantlar = variantlarFor(q);
     main.scrollTop = 0;
     main.innerHTML = `
-      <button id="vBack" class="mb-3 text-sm text-slate-400 hover:text-slate-200 font-medium">← Darsga qaytish</button>
-      <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
-        <span class="font-semibold text-slate-200 truncate pr-2">${esc(test.title)}</span>
-        <span class="shrink-0">${idx + 1} / ${savollar.length}</span>
-      </div>
-      <div class="h-2 rounded-full bg-slate-800 overflow-hidden mb-4">
-        <div class="h-full bg-indigo-500 transition-all" style="width:${(idx / savollar.length) * 100}%"></div>
-      </div>
-      ${test.description && idx === 0 ? `<div class="text-xs text-slate-400 mb-3 leading-relaxed">${esc(test.description)}</div>` : ''}
-      <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-5 mb-4 flex items-center" style="min-height:88px">
-        <div class="text-slate-100 font-semibold text-[16px] leading-snug">${esc(q.q)}</div>
-      </div>
-      <div class="space-y-2.5" id="vOpts">
-        ${variantlar.map((o, i) => `<button data-opt="${i}" class="w-full text-left px-4 py-3.5 rounded-xl border text-sm font-medium transition ${tanlangan === i ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800/70 border-slate-700 text-slate-200 hover:border-slate-500'}">${esc(o)}</button>`).join('')}
-      </div>
-      <div class="flex gap-2 mt-5">
-        ${idx > 0 ? '<button id="vPrev" class="flex-1 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-sm font-semibold">← Oldingi</button>' : ''}
-        <button id="vNext" class="flex-1 py-3 rounded-xl text-sm font-bold transition ${tanlangan === null ? 'bg-slate-800 text-slate-500 border border-slate-700' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}">
-          ${idx === savollar.length - 1 ? 'Yakunlash' : 'Keyingi →'}
-        </button>
+      ${suvBelgisi()}
+      <div class="relative" style="z-index:10">
+        <div class="flex items-center gap-2 mb-3">
+          <button id="vBack" class="text-sm text-slate-400 hover:text-slate-200 font-medium">← Chiqish</button>
+          <div class="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/10">
+            <span class="text-[11px] text-slate-400">${limitSek ? 'Qoldi' : 'Vaqt'}</span>
+            <span id="vTimer" class="text-[13px] font-bold tabular-nums text-slate-200">00:00</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+          <span class="font-semibold text-slate-200 truncate pr-2">${esc(test.title)}</span>
+          <span class="shrink-0">${idx + 1} / ${savollar.length}</span>
+        </div>
+        <div class="h-2 rounded-full bg-slate-800 overflow-hidden mb-4">
+          <div class="h-full bg-indigo-500 transition-all" style="width:${(idx / savollar.length) * 100}%"></div>
+        </div>
+        ${test.description && idx === 0 ? `<div class="text-xs text-slate-400 mb-3 leading-relaxed">${esc(test.description)}</div>` : ''}
+        <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-5 mb-4 flex items-center" style="min-height:88px">
+          <div class="text-slate-100 font-semibold text-[16px] leading-snug">${esc(q.q)}</div>
+        </div>
+        ${sonli(q) ? `
+          <div class="mb-1">
+            <div class="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-3.5 focus-within:border-indigo-400 transition">
+              <input id="vSon" inputmode="decimal" autocomplete="off" value="${tanlangan == null ? '' : esc(String(tanlangan))}"
+                     class="flex-1 min-w-0 bg-transparent outline-none text-slate-100 text-lg font-bold tabular-nums" placeholder="0">
+              ${q.birlik ? `<span class="text-xs text-slate-400 shrink-0">${esc(q.birlik)}</span>` : ''}
+            </div>
+            ${q.izoh_old ? `<div class="mt-2 text-[11px] text-slate-500 leading-relaxed">${esc(q.izoh_old)}</div>` : ''}
+          </div>
+        ` : `
+          <div class="space-y-2.5" id="vOpts">
+            ${variantlar.map((o, i) => `<button data-opt="${i}" class="w-full text-left px-4 py-3.5 rounded-xl border text-sm font-medium transition ${tanlangan === i ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800/70 border-slate-700 text-slate-200 hover:border-slate-500'}">${esc(o)}</button>`).join('')}
+          </div>
+        `}
+        <div class="flex gap-2 mt-5">
+          ${idx > 0 ? '<button id="vPrev" class="px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-sm font-semibold shrink-0">←</button>' : ''}
+          <button id="vSkip" class="px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-sm font-semibold shrink-0">O'tkazish</button>
+          <button id="vNext" class="flex-1 py-3 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition">
+            ${idx === savollar.length - 1 ? 'Yakunlash' : 'Keyingi →'}
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mt-5 pt-4 border-t border-white/10">
+          ${savollar.map((_, i) => {
+            const bor = javoblar[i] !== null;
+            const shu = i === idx;
+            return `<button data-jump="${i}" class="w-8 h-8 rounded-lg text-[11px] font-bold transition ${shu ? 'bg-indigo-500 text-white' : bor ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-500 border border-slate-700'}">${i + 1}</button>`;
+          }).join('')}
+        </div>
       </div>`;
+
+    const saqla = () => {
+      if (!sonli(savollar[idx])) return;
+      const el = $('#vSon', main);
+      if (el) javoblar[idx] = sonOqi(el.value);
+    };
 
     $$('#vOpts [data-opt]', main).forEach((b) => b.onclick = () => {
       javoblar[idx] = Number(b.dataset.opt);
-      chiz();
+      if (idx < savollar.length - 1) { idx++; chiz(); } else chiz();
     });
-    $('#vBack', main).onclick = onBack;
+    $$('[data-jump]', main).forEach((b) => b.onclick = () => { saqla(); idx = Number(b.dataset.jump); chiz(); });
+    $('#vBack', main).onclick = chiqish;
     const prev = $('#vPrev', main);
-    if (prev) prev.onclick = () => { idx--; chiz(); };
-    $('#vNext', main).onclick = () => {
-      if (javoblar[idx] === null) return toast('Avval variantni tanlang', 'error');
+    if (prev) prev.onclick = () => { saqla(); idx--; chiz(); };
+    $('#vSkip', main).onclick = () => {
+      javoblar[idx] = null;
       if (idx < savollar.length - 1) { idx++; chiz(); } else yakunla();
     };
+    $('#vNext', main).onclick = () => {
+      saqla();
+      if (idx < savollar.length - 1) { idx++; chiz(); } else yakunla();
+    };
+    const son = $('#vSon', main);
+    if (son) {
+      son.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#vNext', main).click(); } };
+      setTimeout(() => son.focus(), 40);
+    }
+    taymerniYur();
   };
 
-  async function yakunla() {
-    const togri = savollar.reduce((a, q, i) => a + (javoblar[i] === q.a ? 1 : 0), 0);
+  // --- Yakun ---
+  async function yakunla(vaqtTugadi = false) {
+    if (tugadi) return;
+    const qoldi = javobsizlar();
+    if (!vaqtTugadi && qoldi > 0 && !confirm(`${qoldi} ta savol javobsiz qoldi. Shundayin yakunlaysizmi?`)) return;
+
+    const sarflangan = Math.floor((Date.now() - boshlandi) / 1000);
+    kuzatuvniTo();
+
+    const togri = savollar.reduce((a, q, i) => a + (togrimi(q, javoblar[i]) ? 1 : 0), 0);
     const foiz = savollar.length ? Math.round((togri / savollar.length) * 100) : 0;
 
     main.scrollTop = 0;
     main.innerHTML = `
       <div class="text-center py-6">
         <div class="text-5xl mb-2">${foiz >= 90 ? '🏆' : foiz >= 70 ? '👍' : foiz >= 50 ? '💪' : '📚'}</div>
-        <div class="text-xl font-black text-slate-100">Vazifa yakunlandi</div>
+        <div class="text-xl font-black text-slate-100">${vaqtTugadi ? 'Vaqt tugadi' : 'Vazifa yakunlandi'}</div>
         <div class="text-4xl font-black my-3 ${foiz >= 70 ? 'text-emerald-400' : foiz >= 50 ? 'text-amber-400' : 'text-rose-400'}">${togri}/${savollar.length} · ${foiz}%</div>
-        <div class="text-xs text-slate-400">Natija o'qituvchiga yuborildi</div>
+        <div class="text-xs text-slate-400">⏱ ${vaqt(sarflangan)}${qoldi ? ` · ${qoldi} ta javobsiz` : ''}</div>
+        <div class="text-xs text-slate-500 mt-1">Natija o'qituvchiga yuborildi</div>
       </div>
       <div class="space-y-2">
         ${savollar.map((q, i) => {
-          const ok = javoblar[i] === q.a;
-          return `<div class="rounded-xl border p-3 ${ok ? 'border-emerald-700/40 bg-emerald-900/10' : 'border-rose-700/40 bg-rose-900/10'}">
+          const ok = togrimi(q, javoblar[i]);
+          const bosh = javoblar[i] === null;
+          const meniki = sonli(q) ? sonYoz(javoblar[i]) : belgi(q, javoblar[i]);
+          const togrisi = sonli(q) ? sonYoz(q.a) : belgi(q, q.a);
+          return `<div class="rounded-xl border p-3 ${ok ? 'border-emerald-700/40 bg-emerald-900/10' : bosh ? 'border-slate-700 bg-white/[0.02]' : 'border-rose-700/40 bg-rose-900/10'}">
             <div class="flex gap-2">
-              <span class="shrink-0">${ok ? '✅' : '❌'}</span>
+              <span class="shrink-0">${ok ? '✅' : bosh ? '⬜️' : '❌'}</span>
               <div class="min-w-0 flex-1">
                 <div class="text-sm font-semibold text-slate-100">${i + 1}. ${esc(q.q)}</div>
-                <div class="text-[12px] mt-1 ${ok ? 'text-emerald-300' : 'text-rose-300'}">
-                  ${ok ? `To'g'ri — ${esc(qisqa(q.a))}` : `Siz: ${esc(qisqa(javoblar[i]))} · To'g'risi: ${esc(qisqa(q.a))}`}
+                <div class="text-[12px] mt-1 ${ok ? 'text-emerald-300' : bosh ? 'text-slate-400' : 'text-rose-300'}">
+                  ${ok ? `To'g'ri — ${esc(togrisi)}` : bosh ? `Javobsiz qoldi · To'g'risi: ${esc(togrisi)}` : `Siz: ${esc(meniki)} · To'g'risi: ${esc(togrisi)}`}
                 </div>
                 ${q.izoh ? `<div class="text-[12px] text-slate-400 mt-1.5 leading-relaxed">${esc(q.izoh)}</div>` : ''}
               </div>
@@ -878,12 +1029,17 @@ function runVazifa(test, main, onBack) {
         <button id="vTugat" class="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">Darsga qaytish</button>
       </div>`;
 
-    $('#vQayta', main).onclick = () => { javoblar.fill(null); idx = 0; chiz(); };
+    $('#vQayta', main).onclick = () => runVazifa(test, main, onBack);
     $('#vTugat', main).onclick = onBack;
 
     try {
       await run(sb.from('test_results').upsert(
-        { test_id: test.id, student_id: S.student.id, correct: togri, total: savollar.length, answers: javoblar, finished_at: new Date().toISOString() },
+        {
+          test_id: test.id, student_id: S.student.id,
+          correct: togri, total: savollar.length, answers: javoblar,
+          skipped: qoldi, duration_sec: sarflangan, left_count: chiqishSoni,
+          finished_at: new Date().toISOString(),
+        },
         { onConflict: 'test_id,student_id' },
       ));
       sb.functions.invoke('vazifa-natija', { body: { test_id: test.id, student_id: S.student.id } })

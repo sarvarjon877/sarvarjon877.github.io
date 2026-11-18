@@ -191,7 +191,7 @@ export async function render(container) {
 }
 
 export async function openProfile(studentId, pageContainer) {
-  const [s, bal, memberships, payments, charges, groups, tgSettings, att, myCourses, allCourses] = await Promise.all([
+  const [s, bal, memberships, payments, charges, groups, tgSettings, att, myCourses, allCourses, qurilmalar] = await Promise.all([
     run(sb.from('students').select('*').eq('id', studentId).single()),
     run(sb.from('student_balances').select('*').eq('student_id', studentId).single()),
     run(sb.from('group_students').select('*, groups(id,name,price)').eq('student_id', studentId).eq('status', 'aktiv')),
@@ -202,6 +202,7 @@ export async function openProfile(studentId, pageContainer) {
     run(sb.from('student_attendance_risk').select('*').eq('student_id', studentId).maybeSingle()),
     run(sb.from('student_courses').select('*, courses(id,name)').eq('student_id', studentId)),
     run(sb.from('courses').select('id,name').order('name')),
+    run(sb.from('student_devices').select('*').eq('student_id', studentId).order('first_at')),
   ]);
   const tgBot = tgSettings?.telegram_bot || '';
   const deal = Number(bal?.deal_amount || 0);
@@ -310,9 +311,14 @@ export async function openProfile(studentId, pageContainer) {
             <button id="crsAdd" class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium">Berish</button>
           </div>` : ''}
           <div class="mt-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-2.5">
-            <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">📱 Qurilma — faqat 1 ta</div>
-            <div class="text-xs text-slate-600 mt-0.5">${s.device_id ? `${esc(s.device_name || 'Qurilma')}${s.device_at ? ' · ' + fmtDate(s.device_at) : ''}` : 'Hali hech qanday qurilmadan kirmagan'}</div>
-            ${canEdit() && s.device_id ? `<button id="devReset" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 font-medium mt-1.5">🔄 Qurilmani tozalash — yangi telefondan kira olsin</button>` : ''}
+            <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">📱 Qurilmalar — ${(qurilmalar || []).length}/2</div>
+            ${(qurilmalar || []).length ? `<div class="mt-1 space-y-1">
+              ${qurilmalar.map((q) => `<div class="flex items-center gap-2 text-xs text-slate-600">
+                <span class="flex-1 min-w-0 truncate">${esc(q.device_name || 'Qurilma')} · ${fmtDate(q.last_at || q.first_at)}</span>
+                ${canEdit() ? `<button data-devdel="${q.id}" class="shrink-0 text-[11px] px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 hover:text-rose-600 font-medium">✕</button>` : ''}
+              </div>`).join('')}
+            </div>` : '<div class="text-xs text-slate-600 mt-0.5">Hali hech qanday qurilmadan kirmagan</div>'}
+            ${canEdit() && (qurilmalar || []).length ? `<button id="devReset" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 font-medium mt-1.5">🔄 Hammasini tozalash</button>` : ''}
           </div>
           ${canEdit() ? `<button id="accBtn" class="text-xs px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 font-medium mt-2">📅 Kirish muddati${s.access_until ? ': ' + fmtDate(s.access_until) : ' — cheklanmagan'}</button>` : ''}
         </div>` : ''}
@@ -387,10 +393,16 @@ export async function openProfile(studentId, pageContainer) {
     await run(sb.from('student_courses').delete().eq('id', b.dataset.crm));
     toast('Olib tashlandi'); refresh();
   });
+  $$('[data-devdel]', m.body).forEach((b) => b.onclick = async () => {
+    if (!(await confirmDialog("Shu qurilma o'chirilsinmi? O'quvchi undan qayta kirsa, yana biriktiriladi."))) return;
+    await run(sb.from('student_devices').delete().eq('id', b.dataset.devdel));
+    toast("Qurilma o'chirildi"); refresh();
+  });
   if ($('#devReset', m.body)) $('#devReset', m.body).onclick = async () => {
-    if (!(await confirmDialog('Qurilma tozalansinmi? Shundan keyin o\'quvchi istalgan bitta yangi telefondan kira oladi.'))) return;
+    if (!(await confirmDialog("Barcha qurilmalar tozalansinmi? Shundan keyin o'quvchi istalgan yangi qurilmadan kira oladi."))) return;
+    await run(sb.from('student_devices').delete().eq('student_id', studentId));
     await run(sb.from('students').update({ device_id: null, device_name: null, device_at: null }).eq('id', studentId));
-    toast('Qurilma tozalandi'); refresh();
+    toast('Qurilmalar tozalandi'); refresh();
   };
   if ($('#accBtn', m.body)) $('#accBtn', m.body).onclick = async () => {
     const v = await formModal('Onlayn kirish muddati', [

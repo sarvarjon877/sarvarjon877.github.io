@@ -70,6 +70,8 @@ const onlyDigits = (v) => String(v || '').replace(/\D/g, '');
 
 // --- Qurilma izi: onlayn o'quvchi faqat bitta qurilmadan kira oladi ---
 const DEVICE_KEY = 'finway_device_id';
+// Bitta hisob nechta qurilmadan kira oladi (telefon + noutbuk)
+const QURILMA_LIMIT = 2;
 export function deviceId() {
   let id = localStorage.getItem(DEVICE_KEY);
   if (!id) {
@@ -97,20 +99,35 @@ async function checkStudentAccess(st) {
   if (!isOnlineStudent(st)) return { ok: true };
   const bugun = new Date().toISOString().slice(0, 10);
   if (st.access_until && st.access_until < bugun) {
-    return { ok: false, message: "⏳ Onlayn kirish muddatingiz tugagan. To'lovni yangilash uchun administrator bilan bog'laning." };
+    return { ok: false, message: "\u23f3 Onlayn kirish muddatingiz tugagan. To'lovni yangilash uchun administrator bilan bog'laning." };
   }
   const dev = deviceId();
-  if (!st.device_id) {
-    // Birinchi kirish — shu qurilma biriktiriladi
-    try {
-      await run(sb.from('students').update({ device_id: dev, device_name: deviceName(), device_at: new Date().toISOString() }).eq('id', st.id));
-    } catch { /* yozilmasa ham kirishga to'sqinlik qilmaymiz */ }
+  const nom = deviceName();
+  try {
+    const qurilmalar = await run(sb.from('student_devices').select('id, device_id, device_name').eq('student_id', st.id));
+    const shu = (qurilmalar || []).find((q) => q.device_id === dev);
+    if (shu) {
+      // Shu qurilmadan avval ham kirgan \u2014 oxirgi kirish vaqtini yangilaymiz
+      sb.from('student_devices').update({ last_at: new Date().toISOString(), device_name: nom }).eq('id', shu.id)
+        .then(() => {}, () => {});
+      return { ok: true };
+    }
+    if ((qurilmalar || []).length >= QURILMA_LIMIT) {
+      const nomlar = qurilmalar.map((q) => q.device_name || 'qurilma').join(', ');
+      return {
+        ok: false,
+        message: `\ud83d\udcf1 Bu hisob ${qurilmalar.length} ta qurilmaga (${nomlar}) biriktirilgan \u2014 chegara ${QURILMA_LIMIT} ta. Yangi qurilmadan kirish uchun administratorga murojaat qiling.`,
+      };
+    }
+    await run(sb.from('student_devices').insert({ student_id: st.id, device_id: dev, device_name: nom }));
+    // Xodimlar ro'yxatida oxirgi qurilma ko'rinib tursin
+    sb.from('students').update({ device_id: dev, device_name: nom, device_at: new Date().toISOString() }).eq('id', st.id)
+      .then(() => {}, () => {});
+    return { ok: true };
+  } catch {
+    // Tarmoq ishlamasa o'quvchini bekorga chiqarib yubormaymiz
     return { ok: true };
   }
-  if (st.device_id !== dev) {
-    return { ok: false, message: `📱 Bu hisob boshqa qurilmaga (${st.device_name || 'telefon'}) biriktirilgan. Yangi qurilmadan kirish uchun administratorga murojaat qiling.` };
-  }
-  return { ok: true };
 }
 
 let centerName = "O'quv Markazi";

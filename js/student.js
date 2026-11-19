@@ -200,6 +200,11 @@ function activeCourseId() {
 }
 
 // Kurs darslari + o'quvchining ko'rganlari
+// Vazifa "o'tilgan" hisoblanishi uchun kerak bo'lgan eng kam foiz
+const OTISH_FOIZ = 80;
+const natijaFoiz = (r) => (r && r.total ? Math.round((r.correct / r.total) * 100) : 0);
+const otilganmi = (r) => !!r && natijaFoiz(r) >= OTISH_FOIZ;
+
 async function loadCourseLessons(courseId) {
   const modules = await run(sb.from('course_modules').select('*').eq('course_id', courseId).order('sort_order').order('created_at'));
   const modIds = modules.map((m) => m.id);
@@ -208,6 +213,20 @@ async function loadCourseLessons(courseId) {
     run(sb.from('lesson_progress').select('lesson_id,completed').eq('student_id', S.student.id)),
   ]);
   const doneSet = new Set((progress || []).filter((p) => p.completed).map((p) => p.lesson_id));
+
+  // Darslarga biriktirilgan vazifalar va o'quvchining natijalari
+  const lesIds = lessons.map((l) => l.id);
+  const [vazifalar, natijalar] = await Promise.all([
+    lesIds.length ? run(sb.from('tests').select('id, lesson_id, tartib').in('lesson_id', lesIds).eq('active', true)) : Promise.resolve([]),
+    run(sb.from('test_results').select('test_id, correct, total').eq('student_id', S.student.id)),
+  ]);
+  const natijaOf = (testId) => (natijalar || []).find((r) => r.test_id === testId);
+  // Dars "to'liq tugatilgan" bo'lishi uchun: belgilangan + barcha vazifalari o'tilgan
+  const vazifalarOtilgan = (lessonId) => (vazifalar || [])
+    .filter((t) => t.lesson_id === lessonId)
+    .every((t) => otilganmi(natijaOf(t.id)));
+  const tolaTugadi = (lessonId) => doneSet.has(lessonId) && vazifalarOtilgan(lessonId);
+
   // Modul yopiq bo'lishi mumkin: qo'lda yopilgan yoki ochilish sanasi hali kelmagan
   const bugun = today();
   modules.forEach((m) => {
@@ -215,10 +234,24 @@ async function loadCourseLessons(courseId) {
     m.locked = !!m.locked || m.kutilmoqda;
   });
   const modLocked = new Map(modules.map((m) => [m.id, !!m.locked]));
-  // Yopiq modul ichidagi dars ham yopiq hisoblanadi
-  lessons.forEach((l) => { l.locked = !!l.locked || modLocked.get(l.module_id) === true; });
+
+  // Darslar ketma-ket ochiladi: oldingisini tugatmaguncha keyingisi yopiq.
+  // Tugatish = videoni belgilash + o'sha darsning vazifalarini ${OTISH_FOIZ}% ga yechish.
+  let oldingi = null;
+  lessons.forEach((l) => {
+    l.locked = !!l.locked || modLocked.get(l.module_id) === true;
+    if (!l.locked && oldingi && !tolaTugadi(oldingi.id)) {
+      l.locked = true;
+      l.navbat = true;                 // sanasi kelgan, lekin oldingisi tugamagan
+      l.navbatSabab = doneSet.has(oldingi.id)
+        ? `Avval "${oldingi.title}" vazifalarini ${OTISH_FOIZ}% ga yeching`
+        : `Avval "${oldingi.title}" darsini tugating`;
+    }
+    oldingi = l;
+  });
+
   const ochiq = lessons.filter((l) => !l.locked);
-  return { modules, lessons, ochiq, doneSet };
+  return { modules, lessons, ochiq, doneSet, vazifalar, natijalar, natijaOf, tolaTugadi };
 }
 
 async function markLessonDone(lessonId) {
@@ -638,16 +671,35 @@ async function libDarslar(body, main) {
             const r = natijaOf(t);
             const foiz = r && r.total ? Math.round((r.correct / r.total) * 100) : null;
             const soni = (t.questions || []).length;
-            return `<button data-vazifa="${t.id}" class="w-full text-left px-3.5 py-3 rounded-xl border transition flex items-center gap-3 ${r ? 'bg-white/[0.03] border-white/10 hover:border-indigo-400/50' : 'bg-indigo-600/10 border-indigo-500/40 hover:bg-indigo-600/20'}">
-              <span class="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-sm font-bold ${r ? 'bg-emerald-500/20 text-emerald-300' : 'bg-indigo-500/25 text-indigo-200'}">${r ? '✓' : i + 1}</span>
+            const otdi = otilganmi(r);
+            // Birinchisi ochiq; keyingisi oldingisini OTISH_FOIZ% ga yechgandan keyin ochiladi
+            const qulf = i > 0 && !otilganmi(natijaOf(vazifalar[i - 1]));
+            if (qulf) {
+              return `<div class="w-full text-left px-3.5 py-3 rounded-xl border border-white/5 bg-white/[0.02] flex items-center gap-3 opacity-70">
+                <span class="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-sm bg-slate-800 text-slate-500">🔒</span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-semibold text-slate-400 truncate">${esc(t.title)}</span>
+                  <span class="block text-[11px] text-slate-500">Avval ${i}-vazifani ${OTISH_FOIZ}% ga yeching</span>
+                </span>
+              </div>`;
+            }
+            const rang = otdi ? 'bg-emerald-500/20 text-emerald-300' : r ? 'bg-amber-500/20 text-amber-300' : 'bg-indigo-500/25 text-indigo-200';
+            const holat = otdi
+              ? `${r.correct}/${r.total} · ${foiz}% · o'tildi`
+              : r
+                ? `${r.correct}/${r.total} · ${foiz}% · ${OTISH_FOIZ}% kerak — qayta ishlang`
+                : `${soni} ta savol${t.time_limit ? ` · ${t.time_limit} daqiqa` : ''}`;
+            return `<button data-vazifa="${t.id}" class="w-full text-left px-3.5 py-3 rounded-xl border transition flex items-center gap-3 ${otdi ? 'bg-white/[0.03] border-white/10 hover:border-indigo-400/50' : r ? 'bg-amber-500/10 border-amber-500/40 hover:bg-amber-500/15' : 'bg-indigo-600/10 border-indigo-500/40 hover:bg-indigo-600/20'}">
+              <span class="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-sm font-bold ${rang}">${otdi ? '✓' : i + 1}</span>
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-semibold text-slate-100 truncate">${esc(t.title)}</span>
-                <span class="block text-[11px] ${r ? 'text-emerald-300/80' : 'text-indigo-300/80'}">${r ? `${r.correct}/${r.total} · ${foiz}% · qayta ishlash` : `${soni} ta savol${t.time_limit ? ` · ${t.time_limit} daqiqa` : ''}`}</span>
+                <span class="block text-[11px] ${otdi ? 'text-emerald-300/80' : r ? 'text-amber-300/90' : 'text-indigo-300/80'}">${holat}</span>
               </span>
               <span class="text-slate-500 shrink-0">›</span>
             </button>`;
           }).join('')}
         </div>
+        <div class="mt-2 text-[11px] text-slate-500 leading-relaxed">Keyingi dars ochilishi uchun darsni tugating va barcha vazifalarni kamida ${OTISH_FOIZ}% ga yeching.</div>
       </div>` : ''}
       <button id="libDone" class="w-full mt-2 py-3 rounded-xl text-sm font-bold transition ${done ? 'bg-emerald-600/20 border border-emerald-500/40 text-emerald-300' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}">
         ${done ? '✓ Bu darsni ko\'rgansiz' : '✓ Darsni tugatdim'}
@@ -742,7 +794,7 @@ async function libDarslar(body, main) {
                   <span class="text-lg shrink-0">🔒</span>
                   <span class="min-w-0 flex-1">
                     <span class="block text-sm font-semibold text-slate-400 truncate">${esc(l.title)}</span>
-                    <span class="block text-[11px] text-slate-600">Hali ochilmagan</span>
+                    <span class="block text-[11px] ${l.navbat ? 'text-amber-500/80' : 'text-slate-600'}">${l.navbat ? esc(l.navbatSabab) : 'Hali ochilmagan'}</span>
                   </span>
                 </div>`
               : `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border ${doneSet.has(l.id) ? 'border-emerald-700/50' : 'border-slate-800'} transition">

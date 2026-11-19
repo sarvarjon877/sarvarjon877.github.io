@@ -90,8 +90,8 @@ export async function renderStudentApp(student, centerName) {
   S.courseId = S.courses[0]?.id || null;
 
   $('#app').innerHTML = `
-    <div class="min-h-screen flex flex-col text-slate-100 max-w-lg mx-auto relative" style="background:radial-gradient(130% 55% at 50% -5%, #263568 0%, #131a35 45%, #0a0f22 100%); background-attachment:fixed;">
-      <header class="px-5 pt-5 pb-4 sticky top-0 z-20 backdrop-blur-xl border-b border-white/5" style="background:linear-gradient(to bottom, rgba(12,17,36,.75), rgba(12,17,36,.25));">
+    <div id="sShell" class="min-h-screen flex flex-col text-slate-100 max-w-lg mx-auto relative" style="background:radial-gradient(130% 55% at 50% -5%, #263568 0%, #131a35 45%, #0a0f22 100%); background-attachment:fixed;">
+      <header id="sHeader" class="px-5 pt-5 pb-4 sticky top-0 z-20 backdrop-blur-xl border-b border-white/5" style="background:linear-gradient(to bottom, rgba(12,17,36,.75), rgba(12,17,36,.25));">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2.5 min-w-0">
             ${sAvatar(10)}
@@ -107,7 +107,7 @@ export async function renderStudentApp(student, centerName) {
         </div>
       </header>
       <main id="sMain" class="flex-1 p-4 pb-28 fade-in relative z-10"></main>
-      <nav class="fixed bottom-0 inset-x-0 max-w-lg mx-auto flex z-20 px-1.5 pt-1.5 pb-2 backdrop-blur-xl border-t border-white/5" style="background:linear-gradient(to top, rgba(10,15,34,.95), rgba(10,15,34,.7));">
+      <nav id="sNav" class="fixed bottom-0 inset-x-0 max-w-lg mx-auto flex z-20 px-1.5 pt-1.5 pb-2 backdrop-blur-xl border-t border-white/5" style="background:linear-gradient(to top, rgba(10,15,34,.95), rgba(10,15,34,.7));">
         ${tabsFor().map((t) => `
           <button data-tab="${t.id}" class="flex-1 flex flex-col items-center gap-1 py-1.5 rounded-xl text-[9px] font-semibold text-slate-500 transition">
             <span class="text-[17px] leading-none">${t.icon}</span>${t.label}
@@ -1009,7 +1009,7 @@ function runVazifa(test, main, onBack) {
     main.scrollTop = 0;
     main.innerHTML = `
       ${suvBelgisi()}
-      <div class="relative" style="z-index:10">
+      <div class="relative o-tor" style="z-index:10">
         <div class="flex items-center gap-2 mb-3">
           <button id="vBack" class="text-sm text-slate-400 hover:text-slate-200 font-medium">← Chiqish</button>
           <div class="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/10">

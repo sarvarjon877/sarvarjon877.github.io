@@ -1,0 +1,78 @@
+/* Kompyuter va planshet uchun moslashuv.
+ *
+ * Ilova telefon uchun yozilgan: tor ustun, pastda tugmalar qatori.
+ * Noutbukda u ekranning o'rtasida ingichka chiziq bo'lib qolardi.
+ * Shu fayl keng ekranda tartibni o'zgartiradi: chapda menyu, o'ngda kontent.
+ *
+ * MUHIM: loyihadagi tailwind.css oldindan yig'ilgan va unda `lg:` kabi
+ * moslashuvchan klasslar YO'Q. Shuning uchun bu yerda oddiy CSS va
+ * media so'rovlari ishlatiladi, id orqali (klassdan kuchliroq).
+ */
+
+@media (min-width: 900px) {
+  #sShell {
+    max-width: 1180px;
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-areas:
+      "nav header"
+      "nav main";
+    align-items: start;
+  }
+
+  #sHeader {
+    grid-area: header;
+    padding: 20px 28px 16px;
+  }
+
+  #sMain {
+    grid-area: main;
+    padding: 24px 28px 56px;
+    max-width: 920px;
+  }
+
+  /* Pastdagi tugmalar qatori chapdagi ustunga aylanadi */
+  #sNav {
+    grid-area: nav;
+    position: sticky;
+    top: 0;
+    inset: auto;
+    align-self: stretch;
+    height: 100vh;
+    max-width: none;
+    margin: 0;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 22px 14px;
+    border-top: 0;
+    border-right: 1px solid rgba(255, 255, 255, .06);
+    background: linear-gradient(to bottom, rgba(10, 15, 34, .55), rgba(10, 15, 34, .25));
+  }
+
+  #sNav button {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    line-height: 1.2;
+  }
+
+  #sNav button > span {
+    font-size: 19px;
+  }
+
+  /* Vazifa va dars matnlari juda cho'zilib ketmasin */
+  #sMain .o-tor {
+    max-width: 760px;
+  }
+}
+
+/* Katta ekranda sal kengroq, lekin markazda */
+@media (min-width: 1400px) {
+  #sShell { max-width: 1280px; }
+  #sMain { max-width: 1000px; }
+}

@@ -484,12 +484,14 @@ async function drawHome(main) {
 // --- Profil (rasm + ism) ---
 async function drawProfile(main) {
   main.innerHTML = '<div class="text-slate-500 text-sm text-center py-8">Yuklanmoqda...</div>';
-  const [me, pays] = await Promise.all([
+  // To'lovlar jadvali o'quvchiga yopiq (markazning butun moliyasi ko'rinmasin).
+  // O'z to'lovlari yig'indisini server tomondagi funksiya qaytaradi.
+  const [me, tolangan] = await Promise.all([
     run(sb.from('students').select('first_name,last_name,phone,photo_url,coins,deal_amount,due_date,blocked,mode,access_until').eq('id', S.student.id).single()),
-    run(sb.from('payments').select('amount').eq('student_id', S.student.id)),
+    run(sb.rpc('oquvchi_tolagani', { p_student: S.student.id })),
   ]);
   const money = (n) => (Number(n) || 0).toLocaleString('ru-RU').replace(/,/g, ' ') + " so'm";
-  const paid = pays.reduce((a, p) => a + Number(p.amount), 0);
+  const paid = Number(tolangan || 0);
   const deal = Number(me.deal_amount || 0);
   const remaining = Math.max(0, deal - paid);
   const due = me.due_date;

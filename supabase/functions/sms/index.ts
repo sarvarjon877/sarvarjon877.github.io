@@ -83,7 +83,7 @@ async function isStaffPhone(phone: string): Promise<boolean> {
   const { data: st } = await admin.from('settings').select('phone_direktor, phone_moliyachi, phone_admin, phone_oqituvchi').single();
   if (!st) return false;
   return ['phone_direktor', 'phone_moliyachi', 'phone_admin', 'phone_oqituvchi']
-    .some((k) => st[k] && last9(String(st[k])) === last9(phone));
+    .some((k) => (st as any)[k] && last9(String((st as any)[k])) === last9(phone));
 }
 
 Deno.serve(async (req) => {
@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     const { count } = await admin.from('otp_codes').select('id', { count: 'exact', head: true }).eq('phone', phone).gte('created_at', hourAgo);
     if ((count || 0) >= 5) return json({ ok: false, error: 'limit', message: 'Juda ko\'p urinish. Birozdan keyin qayta urinib ko\'ring.' });
 
-    const code = String(Math.floor(10000000 + Math.random() * 90000000));
+    const code = String(Math.floor(1000 + Math.random() * 9000));
     const expires = new Date(Date.now() + 5 * 60 * 1000).toISOString();
     await admin.from('otp_codes').insert({ phone, code, purpose: 'login', expires_at: expires });
     const msg = `Finway Academy tizimiga kirish uchun tasdiqlash kodi: ${code}. Kodni hech kimga bermang.`;

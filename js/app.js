@@ -294,7 +294,7 @@ function renderLogin() {
     </div>` : ''}
     <div>
       <label class="block text-xs font-semibold text-slate-500 mb-1.5">Tasdiqlash kodi</label>
-      <input name="code" inputmode="numeric" autocomplete="one-time-code" required class="${inputCls} tracking-[0.25em] text-center text-lg font-bold" placeholder="________" maxlength="8">
+      <input name="code" inputmode="numeric" autocomplete="one-time-code" required class="${inputCls} tracking-[0.25em] text-center text-lg font-bold" placeholder="____" maxlength="4">
       ${hint ? `<div class="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">${hint}</div>` : ''}
       <button type="button" id="backBtn" class="mt-2 text-xs text-slate-400 hover:text-slate-600">← Orqaga</button>
     </div>

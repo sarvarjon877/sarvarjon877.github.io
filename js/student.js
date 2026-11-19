@@ -237,17 +237,20 @@ async function loadCourseLessons(courseId) {
 
   // Darslar ketma-ket ochiladi: oldingisini tugatmaguncha keyingisi yopiq.
   // Tugatish = videoni belgilash + o'sha darsning vazifalarini ${OTISH_FOIZ}% ga yechish.
+  //
+  // Qo'shimcha darslar bu qoidadan tashqarida: ular ixtiyoriy material,
+  // shuning uchun doim ochiq turadi va keyingi darsni ham to'smaydi.
   let oldingi = null;
   lessons.forEach((l) => {
     l.locked = !!l.locked || modLocked.get(l.module_id) === true;
-    if (!l.locked && oldingi && !tolaTugadi(oldingi.id)) {
+    if (!l.qoshimcha && !l.locked && oldingi && !tolaTugadi(oldingi.id)) {
       l.locked = true;
       l.navbat = true;                 // sanasi kelgan, lekin oldingisi tugamagan
       l.navbatSabab = doneSet.has(oldingi.id)
         ? `Avval "${oldingi.title}" vazifalarini ${OTISH_FOIZ}% ga yeching`
         : `Avval "${oldingi.title}" darsini tugating`;
     }
-    oldingi = l;
+    if (!l.qoshimcha) oldingi = l;
   });
 
   const ochiq = lessons.filter((l) => !l.locked);
@@ -798,7 +801,7 @@ async function libDarslar(body, main) {
                   </span>
                 </div>`
               : `<button data-lesson="${l.id}" class="w-full flex items-center gap-3 text-left px-3 py-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border ${doneSet.has(l.id) ? 'border-emerald-700/50' : 'border-slate-800'} transition">
-              <span class="text-lg shrink-0">${doneSet.has(l.id) ? '✅' : (hasVideo(l) ? '🎬' : '📄')}</span>
+              <span class="text-lg shrink-0">${doneSet.has(l.id) ? '✅' : l.qoshimcha ? '➕' : (hasVideo(l) ? '🎬' : '📄')}</span>
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-semibold text-slate-100 truncate">${esc(l.title)}</span>
                 ${l.duration_min ? `<span class="block text-[11px] text-slate-500">⏱ ${esc(libDur(l.duration_min))}</span>` : ''}

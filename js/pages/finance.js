@@ -1,6 +1,7 @@
 import { sb, run } from '../db.js';
 import { $, $$, esc, formModal, confirmDialog, toast, fmtDate, fmtMoney, btnCls, statCard, emptyState, today } from '../ui.js';
 import { openProfile } from './students.js';
+import { davrHisoboti } from './finance-davr.js';
 import { currentUser } from '../app.js';
 
 // Moliyaviy to'liq huquq: direktor va moliyachi. Admin faqat to'lov qabul qiladi va qarzdorlarni ko'radi.
@@ -33,6 +34,7 @@ export async function render(container) {
   const profit = monthIncome - monthExpense;
 
   const TABS = fullFinance() ? [
+    ['davr', '📅 Davr hisoboti'],
     ['payments', `To'lovlar (${payments.length})`],
     ['expenses', `Xarajatlar (${expenses.length})`],
     ['debtors', `Qarzdorlar (${debtors.length})`],
@@ -65,6 +67,8 @@ export async function render(container) {
   const body = $('#body', container);
 
   const draw = () => {
+    // Davr hisoboti o'z ma'lumotini o'zi yuklaydi (200 ta yozuv chegarasiz)
+    if (tab === 'davr') { davrHisoboti(body); return; }
     if (tab === 'payments') {
       body.innerHTML = payments.length === 0 ? emptyState("To'lovlar yo'q") : `
         <table class="w-full text-sm min-w-[640px]">

@@ -59,7 +59,7 @@ export async function render(container) {
             <span><b>🛎 Administrator</b> — moliyasiz</span>${currentUser.role === 'direktor' ? '<code class="text-xs text-slate-500">Admin877</code>' : ''}
           </div>
           <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-50 border border-slate-100">
-            <span><b>🧑‍🏫 O'qituvchi</b> — darslar va davomat</span>${currentUser.role === 'direktor' ? '<code class="text-xs text-slate-500">Ustoz877</code>' : ''}
+            <span><b>🧑‍🏫 O'qituvchi</b> — darslar va davomat</span>${currentUser.role === 'direktor' ? '<code class="text-xs text-slate-500">Xadija2026</code>' : ''}
           </div>
           <p class="text-xs text-slate-400 pt-1">Direktor va Moliyachi hammasini ko'radi. Administrator pulga oid hech narsani ko'rmaydi (to'lovlar, balans, narxlar, hisobotlar yashirin). O'qituvchi faqat o'quvchilar, guruhlar va davomatni ko'radi. Parollar faqat direktorga ko'rinadi.</p>
         </div>

@@ -202,6 +202,12 @@ function activeCourseId() {
 // Kurs darslari + o'quvchining ko'rganlari
 // Vazifa "o'tilgan" hisoblanishi uchun kerak bo'lgan eng kam foiz
 const OTISH_FOIZ = 80;
+/** Bugungi sana o'quvchi telefoni soati bo'yicha: "YYYY-MM-DD". */
+const mahalliySana = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
 const natijaFoiz = (r) => (r && r.total ? Math.round((r.correct / r.total) * 100) : 0);
 const otilganmi = (r) => !!r && natijaFoiz(r) >= OTISH_FOIZ;
 
@@ -227,8 +233,11 @@ async function loadCourseLessons(courseId) {
     .every((t) => otilganmi(natijaOf(t.id)));
   const tolaTugadi = (lessonId) => doneSet.has(lessonId) && vazifalarOtilgan(lessonId);
 
-  // Modul yopiq bo'lishi mumkin: qo'lda yopilgan yoki ochilish sanasi hali kelmagan
-  const bugun = today();
+  // Modul yopiq bo'lishi mumkin: qo'lda yopilgan yoki ochilish sanasi hali kelmagan.
+  // Sanani telefon soati bo'yicha olamiz: toISOString() Grinvich vaqtini beradi,
+  // shuning uchun Toshkentda tun yarmidan ertalab 5 gacha modul "ertaga ochiladi"
+  // bo'lib ko'rinib qolardi.
+  const bugun = mahalliySana();
   modules.forEach((m) => {
     m.kutilmoqda = !m.locked && !!m.opens_at && m.opens_at > bugun;
     m.locked = !!m.locked || m.kutilmoqda;

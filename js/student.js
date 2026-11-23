@@ -235,13 +235,25 @@ async function loadCourseLessons(courseId) {
   });
   const modLocked = new Map(modules.map((m) => [m.id, !!m.locked]));
 
-  // Darslar ketma-ket ochiladi: oldingisini tugatmaguncha keyingisi yopiq.
-  // Tugatish = videoni belgilash + o'sha darsning vazifalarini ${OTISH_FOIZ}% ga yechish.
+  // Darslar HAR BIR MODUL ICHIDA ketma-ket ochiladi: oldingisini tugatmaguncha
+  // keyingisi yopiq. Tugatish = videoni belgilash + o'sha darsning vazifalarini
+  // ${OTISH_FOIZ}% ga yechish.
+  //
+  // Yangi modul esa o'z sanasida ochiladi — oldingi modulning oxirgi darsi
+  // uni to'smaydi. Aks holda bitta tugatilmagan dars butun kursni to'xtatib
+  // qo'yardi.
   //
   // Qo'shimcha darslar bu qoidadan tashqarida: ular ixtiyoriy material,
   // shuning uchun doim ochiq turadi va keyingi darsni ham to'smaydi.
+  const modTartib = new Map(modules.map((m, i) => [m.id, i]));
+  lessons.sort((a, b) => (modTartib.get(a.module_id) ?? 0) - (modTartib.get(b.module_id) ?? 0)
+    || (a.sort_order || 0) - (b.sort_order || 0)
+    || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+
   let oldingi = null;
+  let shuModul = null;
   lessons.forEach((l) => {
+    if (l.module_id !== shuModul) { shuModul = l.module_id; oldingi = null; }
     l.locked = !!l.locked || modLocked.get(l.module_id) === true;
     if (!l.qoshimcha && !l.locked && oldingi && !tolaTugadi(oldingi.id)) {
       l.locked = true;

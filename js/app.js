@@ -1,5 +1,5 @@
 import { sb, run } from './db.js';
-import { $, esc, toast, fmtTelInput, modal, formModal } from './ui.js';
+import { $, $$, esc, toast, fmtTelInput, modal, formModal } from './ui.js';
 import { renderStudentApp } from './student.js';
 import { renderTeacherApp } from './teacher.js';
 
@@ -414,7 +414,8 @@ function renderLogin() {
     e.preventDefault();
     if (!selectedRole) { toast("Avval bo'limni tanlang", 'error'); return; }
     const fd = new FormData(e.target);
-    const btn = e.target.querySelector('button');
+    // Formada yordamchi tugmalar ham bor («← Boshqa») — yuborish tugmasini aniq olamiz
+    const btn = e.target.querySelector('button[type="submit"], button:not([type])');
     const setBusy = (t) => { btn.disabled = true; btn.textContent = t; };
     const unBusy = (t) => { btn.disabled = false; btn.textContent = t; };
 

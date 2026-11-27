@@ -8,20 +8,20 @@ const SECTIONS = [
   {
     title: 'Asosiy',
     pages: [
-      { id: 'dashboard', title: 'Bosh sahifa', icon: '🏠', mod: './pages/dashboard.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'dashboard', title: 'Bosh sahifa', icon: '🏠', mod: './pages/dashboard.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
       { id: 'leads', title: 'Lidlar', icon: '🎯', mod: './pages/leads.js', roles: ['direktor', 'moliyachi', 'admin'] },
     ],
   },
   {
     title: "O'quv jarayoni",
     pages: [
-      { id: 'students', title: "O'quvchilar", icon: '🎓', mod: './pages/students.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
-      { id: 'groups', title: 'Guruhlar', icon: '👥', mod: './pages/groups.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'students', title: "O'quvchilar", icon: '🎓', mod: './pages/students.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
+      { id: 'groups', title: 'Guruhlar', icon: '👥', mod: './pages/groups.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
       { id: 'schedule', title: 'Xona bandligi', icon: '🚪', mod: './pages/schedule.js', roles: ['direktor', 'moliyachi', 'admin'] },
-      { id: 'library', title: 'Darsliklar', icon: '📚', mod: './pages/lessons.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
-      { id: 'attendance', title: 'Davomat', icon: '📋', mod: './pages/attendance.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
-      { id: 'chat', title: 'Chat / Savollar', icon: '💬', mod: './pages/chat.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
-      { id: 'tasks', title: 'Topshiriqlar', icon: '📝', mod: './pages/tasks.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'library', title: 'Darsliklar', icon: '📚', mod: './pages/lessons.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
+      { id: 'attendance', title: 'Davomat', icon: '📋', mod: './pages/attendance.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
+      { id: 'chat', title: 'Chat / Savollar', icon: '💬', mod: './pages/chat.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
+      { id: 'tasks', title: 'Topshiriqlar', icon: '📝', mod: './pages/tasks.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
     ],
   },
   {
@@ -43,7 +43,7 @@ const SECTIONS = [
   },
 ];
 
-const ROLE_LABELS = { direktor: 'Direktor', admin: 'Administrator', moliyachi: 'Moliyachi', menejer: 'Menejer', oqituvchi: "O'qituvchi" };
+const ROLE_LABELS = { direktor: 'Direktor', admin: 'Administrator', moliyachi: 'Moliyachi', menejer: 'Menejer', oqituvchi: "O'qituvchi", kurator: 'Kurator' };
 
 // Kirish oynasidagi rol tanlovi: rol -> ichki hisob emaili
 const LOGIN_ROLES = [
@@ -258,6 +258,9 @@ function renderLogin() {
               </button>`).join('')}
             <button type="button" data-role="oquvchi" class="col-span-2 flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-sm font-bold text-white shadow-lg shadow-blue-600/30 hover:from-blue-500 hover:to-indigo-500 transition">
               <span class="text-lg">🎓</span> Men o'quvchiman
+            </button>
+            <button type="button" data-role="xodim" class="col-span-2 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-slate-200 text-xs font-semibold text-slate-500 hover:border-blue-300 hover:text-blue-600 transition">
+              <span class="text-base">👤</span> Shaxsiy hisob bilan kirish
             </button>
           </div>
           <form id="loginForm" class="space-y-4"><div id="authArea"></div></form>

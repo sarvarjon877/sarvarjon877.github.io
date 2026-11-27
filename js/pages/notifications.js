@@ -35,7 +35,15 @@ export async function render(container) {
 
   const [settingsRow, cfgRow] = await Promise.all([
     sb.from('settings').select('telegram_bot, center_name').maybeSingle().then((r) => r.data).catch(() => null),
-    sb.from('sms_config').select('enabled, provider').eq('id', 1).maybeSingle().then((r) => r.data).catch(() => null),
+    sb.from('sms_config').select('enabled, provider, tg_kurator, tg_kurator_nomi, savol_kutish_daq')
+      .eq('id', 1).maybeSingle().then((r) => r.data).catch(() => null),
+  ]);
+  // Kurator bo'limi uchun: botga ulangan xodimlar va savollar navbati
+  const [botAdmins, savollar] = await Promise.all([
+    sb.from('tg_admins').select('chat_id, nomi, created_at').order('created_at')
+      .then((r) => r.data || []).catch(() => []),
+    sb.from('savol_navbat').select('*').order('yuborildi_at', { ascending: false }).limit(30)
+      .then((r) => r.data || []).catch(() => []),
   ]);
   const [linked, logs, otps, blocked] = await Promise.all([
     run(sb.from('students').select('id,first_name,last_name,phone,telegram_chat_id').not('telegram_chat_id', 'is', null).order('first_name')),
@@ -50,8 +58,13 @@ export async function render(container) {
   const codesToday = otps.filter((o) => new Date(o.created_at) >= new Date(new Date().setHours(0, 0, 0, 0))).length;
   const suspicious = otps.filter((o) => (o.attempts || 0) >= 3);
 
+  const kuratorChat = cfgRow?.tg_kurator ? String(cfgRow.tg_kurator) : '';
+  const kutishDaq = Number(cfgRow?.savol_kutish_daq || 30);
+  const javobsiz = savollar.filter((s) => !s.javob_at);
+
   const TABS = [
     { id: 'status', label: '📊 Holat' },
+    { id: 'kurator', label: `👩‍🏫 Kurator${javobsiz.length ? ' (' + javobsiz.length + ')' : ''}` },
     { id: 'linked', label: `📲 Ulanganlar (${linked.length})` },
     { id: 'logs', label: '📜 Kirish loglari' },
     { id: 'security', label: `🛡 Xavfsizlik${blocked.length ? ' (' + blocked.length + ')' : ''}` },
@@ -92,6 +105,83 @@ export async function render(container) {
           O'quvchi «Men o'quvchiman» → telefon raqamini kiritadi → 6 xonali kod yuboriladi:
           <b>Telegram</b>ga (agar botga ulangan bo'lsa), aks holda <b>SMS</b>ga, ikkalasi ham yo'q bo'lsa <b>sinov rejimi</b>da ekranda ko'rinadi.
           Ulanish uchun o'quvchi <b>@${esc(botName)}</b> botiga Start bosib telefon raqamini ulashadi.
+        </div>`;
+    }
+
+    else if (tab === 'kurator') {
+      const kuratorNomi = cfgRow?.tg_kurator_nomi || '';
+      const holat = kuratorChat
+        ? `<div class="flex items-center gap-3">
+             <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl">👩‍🏫</div>
+             <div class="min-w-0">
+               <div class="font-bold text-slate-800">${esc(kuratorNomi || 'Kurator')}</div>
+               <div class="text-xs text-slate-400">Chat ID: ${esc(kuratorChat)}</div>
+             </div>
+             <button id="kurOchir" class="${btnCls.ghost} text-rose-600 ml-auto">Olib tashlash</button>
+           </div>`
+        : `<div class="flex items-center gap-3">
+             <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl">⚠️</div>
+             <div><div class="font-bold text-slate-800">Kurator tanlanmagan</div>
+             <div class="text-xs text-slate-400">Savollar to'g'ridan-to'g'ri xodimlar guruhiga tushadi</div></div>
+           </div>`;
+
+      const royxat = botAdmins.length === 0
+        ? `<div class="text-sm text-slate-400 py-4">Botga hali hech kim ulanmagan. Xodim botga <b>/admin &lt;kod&gt;</b> yozsa, shu yerda chiqadi.</div>`
+        : botAdmins.map((a) => {
+          const shu = String(a.chat_id) === kuratorChat;
+          return `<div class="flex items-center gap-3 py-2.5 border-b border-slate-50 last:border-0">
+            <div class="w-9 h-9 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center">👤</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-slate-700 truncate">${esc(a.nomi || 'Ismsiz')}</div>
+              <div class="text-[11px] text-slate-400">${esc(a.chat_id)}</div>
+            </div>
+            ${shu
+              ? '<span class="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700">Kurator</span>'
+              : `<button data-kur="${esc(a.chat_id)}" data-nom="${esc(a.nomi || '')}" class="${btnCls.ghost}">Kurator qilish</button>`}
+          </div>`;
+        }).join('');
+
+      const savolQatori = (s) => {
+        const holatBadge = s.javob_at
+          ? '<span class="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700">✅ Javob berildi</span>'
+          : s.guruhga_at
+            ? '<span class="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-rose-50 text-rose-700">⚠️ Guruhga o\'tdi</span>'
+            : '<span class="text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-50 text-amber-700">⏳ Kutilmoqda</span>';
+        return `<div class="py-3 border-b border-slate-50 last:border-0">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="font-semibold text-sm text-slate-700">${esc(s.kim || 'O\'quvchi')}</span>
+            ${holatBadge}
+            <span class="text-[11px] text-slate-400 ml-auto">${esc(fmtDT(s.yuborildi_at))}</span>
+          </div>
+          <div class="text-sm text-slate-500 leading-snug">${esc(String(s.savol || '').slice(0, 200))}</div>
+        </div>`;
+      };
+
+      body.innerHTML = `
+        <div class="bg-white rounded-xl border border-slate-200/80 p-4 mb-4">${holat}</div>
+
+        <div class="bg-white rounded-xl border border-slate-200/80 p-4 mb-4">
+          <div class="font-bold text-slate-700 text-sm mb-1">Javob kutish vaqti</div>
+          <div class="text-xs text-slate-400 mb-3">Kurator shu vaqt ichida javob bermasa, savol xodimlar guruhiga o'tadi.</div>
+          <div class="flex items-center gap-2">
+            <input id="kutish" type="number" min="5" max="1440" value="${kutishDaq}"
+              class="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+            <span class="text-sm text-slate-500">daqiqa</span>
+            <button id="kutishSaqla" class="${btnCls.primary} ml-2">Saqlash</button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200/80 p-4 mb-4">
+          <div class="font-bold text-slate-700 text-sm mb-1">Botga ulangan xodimlar</div>
+          <div class="text-xs text-slate-400 mb-2">Savollar kim bo'lsa ham avval kuratorga boradi.</div>
+          ${royxat}
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200/80 p-4">
+          <div class="font-bold text-slate-700 text-sm mb-2">Savollar tarixi</div>
+          ${savollar.length === 0
+            ? '<div class="text-sm text-slate-400 py-4">Hali savol kelmagan.</div>'
+            : savollar.map(savolQatori).join('')}
         </div>`;
     }
 
@@ -181,6 +271,27 @@ export async function render(container) {
       if (!(await confirmDialog(`${fmtPhone(b.dataset.block)} raqami bloklanadi. Davom etasizmi?`))) return;
       blockNumber(b.dataset.block, 'Shubhali urinishlar');
     });
+    // --- Kurator ---
+    $$('[data-kur]', container).forEach((b) => b.onclick = async () => {
+      await run(sb.from('sms_config')
+        .update({ tg_kurator: Number(b.dataset.kur), tg_kurator_nomi: b.dataset.nom || null })
+        .eq('id', 1));
+      toast('Kurator tayinlandi'); render(container);
+    });
+    const ko = $('#kurOchir', container);
+    if (ko) ko.onclick = async () => {
+      if (!(await confirmDialog('Kurator olib tashlanadi — savollar to\'g\'ridan-to\'g\'ri xodimlar guruhiga tushadi. Davom etasizmi?'))) return;
+      await run(sb.from('sms_config').update({ tg_kurator: null, tg_kurator_nomi: null }).eq('id', 1));
+      toast('Olib tashlandi'); render(container);
+    };
+    const ks = $('#kutishSaqla', container);
+    if (ks) ks.onclick = async () => {
+      const n = Number($('#kutish', container)?.value || 30);
+      if (!(n >= 5 && n <= 1440)) return toast('5 dan 1440 daqiqagacha bo\'lsin', 'error');
+      await run(sb.from('sms_config').update({ savol_kutish_daq: n }).eq('id', 1));
+      toast('Saqlandi'); render(container);
+    };
+
     const ab = $('#addBlock', container);
     if (ab) ab.onclick = async () => {
       const v = await formModal('Raqamni bloklash', [

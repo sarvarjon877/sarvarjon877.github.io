@@ -6,6 +6,7 @@ const canEdit = () => ['direktor', 'moliyachi'].includes(currentUser.role);
 
 const ROLES = [
   { value: 'oqituvchi', label: "O'qituvchi" },
+  { value: 'kurator', label: 'Kurator' },
   { value: 'admin', label: 'Administrator' },
   { value: 'moliyachi', label: 'Moliyachi' },
   { value: 'menejer', label: 'Menejer' },

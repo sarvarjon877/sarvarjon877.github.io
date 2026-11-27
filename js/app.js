@@ -8,20 +8,20 @@ const SECTIONS = [
   {
     title: 'Asosiy',
     pages: [
-      { id: 'dashboard', title: 'Bosh sahifa', icon: '🏠', mod: './pages/dashboard.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
+      { id: 'dashboard', title: 'Bosh sahifa', icon: '🏠', mod: './pages/dashboard.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
       { id: 'leads', title: 'Lidlar', icon: '🎯', mod: './pages/leads.js', roles: ['direktor', 'moliyachi', 'admin'] },
     ],
   },
   {
     title: "O'quv jarayoni",
     pages: [
-      { id: 'students', title: "O'quvchilar", icon: '🎓', mod: './pages/students.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
-      { id: 'groups', title: 'Guruhlar', icon: '👥', mod: './pages/groups.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
+      { id: 'students', title: "O'quvchilar", icon: '🎓', mod: './pages/students.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'groups', title: 'Guruhlar', icon: '👥', mod: './pages/groups.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
       { id: 'schedule', title: 'Xona bandligi', icon: '🚪', mod: './pages/schedule.js', roles: ['direktor', 'moliyachi', 'admin'] },
-      { id: 'library', title: 'Darsliklar', icon: '📚', mod: './pages/lessons.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
-      { id: 'attendance', title: 'Davomat', icon: '📋', mod: './pages/attendance.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
-      { id: 'chat', title: 'Chat / Savollar', icon: '💬', mod: './pages/chat.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
-      { id: 'tasks', title: 'Topshiriqlar', icon: '📝', mod: './pages/tasks.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi', 'kurator'] },
+      { id: 'library', title: 'Darsliklar', icon: '📚', mod: './pages/lessons.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'attendance', title: 'Davomat', icon: '📋', mod: './pages/attendance.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'chat', title: 'Chat / Savollar', icon: '💬', mod: './pages/chat.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
+      { id: 'tasks', title: 'Topshiriqlar', icon: '📝', mod: './pages/tasks.js', roles: ['direktor', 'moliyachi', 'admin', 'oqituvchi'] },
     ],
   },
   {
@@ -236,6 +236,11 @@ function renderLogin() {
   let stage = 'input';   // 'input' | 'otp'
   let otpPhone = '';     // OTP yuborilgan raqam
   let otpName = '';      // Raqam kimga tegishli — kod ekranida ko'rsatiladi
+  // Shaxsiy hisobi bor xodimlar (o'qituvchi va kurator): har biri o'z paroli
+  // bilan o'z hisobiga kiradi. Ro'yxat ochiq RPC orqali keladi — parol baribir
+  // himoyada, lekin kirish oynasida kim borligi ko'rinib turadi.
+  let xodimlar = [];
+  let xodim = null;      // tanlangan xodim
 
   $('#app').innerHTML = `
     <div class="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style="background:radial-gradient(125% 80% at 50% -10%, #2563eb 0%, #1e40af 38%, #0b1220 100%);">
@@ -258,9 +263,6 @@ function renderLogin() {
               </button>`).join('')}
             <button type="button" data-role="oquvchi" class="col-span-2 flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-sm font-bold text-white shadow-lg shadow-blue-600/30 hover:from-blue-500 hover:to-indigo-500 transition">
               <span class="text-lg">🎓</span> Men o'quvchiman
-            </button>
-            <button type="button" data-role="xodim" class="col-span-2 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-slate-200 text-xs font-semibold text-slate-500 hover:border-blue-300 hover:text-blue-600 transition">
-              <span class="text-base">👤</span> Shaxsiy hisob bilan kirish
             </button>
           </div>
           <form id="loginForm" class="space-y-4"><div id="authArea"></div></form>
@@ -335,13 +337,47 @@ function renderLogin() {
         inp.addEventListener('input', () => { inp.value = fmtTelInput(inp.value); });
         setTimeout(() => { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }, 30);
       }
-    } else {
+    } else if (selectedRole === 'oqituvchi' && !xodim && xodimlar.length) {
+      // Kim kirayotganini tanlaydi — keyin o'z paroli so'raladi
       area.innerHTML = `
+        <div class="text-xs font-semibold text-slate-500 mb-2">Kim kiryapti?</div>
+        <div class="space-y-1.5 max-h-72 overflow-y-auto">
+          ${xodimlar.map((x) => `
+            <button type="button" data-x="${esc(x.id)}" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition text-left">
+              <span class="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-sm font-bold shrink-0">${esc((x.ism || '?').slice(0, 1).toUpperCase())}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold text-slate-700 truncate">${esc(x.ism)}</span>
+                <span class="block text-[11px] text-slate-400">${x.rol === 'kurator' ? 'Kurator' : "O'qituvchi"}</span>
+              </span>
+            </button>`).join('')}
+        </div>
+        <button type="button" id="umumiyHisob" class="mt-3 w-full text-[11px] text-slate-400 hover:text-slate-600">Umumiy hisob bilan kirish</button>`;
+      $$('[data-x]', area).forEach((b) => b.onclick = () => {
+        xodim = xodimlar.find((x) => String(x.id) === b.dataset.x) || null;
+        drawAuth();
+      });
+      const uh = $('#umumiyHisob', area);
+      if (uh) uh.onclick = () => { xodim = { umumiy: true, ism: 'Umumiy hisob' }; drawAuth(); };
+      return;
+    } else {
+      const kim = selectedRole === 'oqituvchi' && xodim ? xodim : null;
+      area.innerHTML = `
+        ${kim ? `<div class="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5 mb-1">
+          <span class="text-lg">👋</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-[11px] text-blue-600">Kirmoqda</div>
+            <div class="text-sm font-bold text-blue-900 truncate">${esc(kim.ism)}</div>
+          </div>
+          <button type="button" id="kimOzgart" class="text-[11px] text-blue-600 hover:text-blue-800 shrink-0">← Boshqa</button>
+        </div>` : ''}
         <div>
           <label class="block text-xs font-semibold text-slate-500 mb-1.5">Parol</label>
-          <input name="password" type="password" required class="${inputCls}" placeholder="••••••••">
+          <input name="password" type="password" required class="${inputCls}" placeholder="••••••••" autocomplete="current-password">
         </div>
         <button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm transition">Kirish</button>`;
+      const ko = $('#kimOzgart', area);
+      if (ko) ko.onclick = () => { xodim = null; drawAuth(); };
+      setTimeout(() => { const el = $('[name=password]', area); if (el) el.focus(); }, 30);
     }
   };
 
@@ -350,7 +386,19 @@ function renderLogin() {
     if (bb) bb.onclick = () => { stage = 'input'; otpName = ''; drawAuth(); };
   }
 
-  pickBtns.forEach((b) => b.onclick = () => { selectedRole = b.dataset.role; stage = 'input'; otpName = ''; paintPick(); drawAuth(); });
+  const xodimlarniYukla = async () => {
+    if (xodimlar.length) return;
+    try {
+      const { data } = await sb.rpc('xodim_loginlari');
+      xodimlar = data || [];
+    } catch { xodimlar = []; }
+  };
+
+  pickBtns.forEach((b) => b.onclick = async () => {
+    selectedRole = b.dataset.role; stage = 'input'; otpName = ''; xodim = null;
+    paintPick(); drawAuth();
+    if (selectedRole === 'oqituvchi') { await xodimlarniYukla(); drawAuth(); }
+  });
   paintPick(); drawAuth();
 
   const showHintForTest = (res) => {
@@ -401,20 +449,25 @@ function renderLogin() {
       return;
     }
 
-    // === XODIM (rol hisobi yoki shaxsiy login) ===
-    const isPersonal = selectedRole === 'xodim';
-    const role = isPersonal ? null : LOGIN_ROLES.find((r) => r.key === selectedRole);
-    const loginEmail = isPersonal ? String(fd.get('email') || '').trim().toLowerCase() : role.email;
+    // === XODIM (rol hisobi yoki shaxsiy hisob) ===
+    // O'qituvchi bo'limida xodim o'zini tanlagan bo'lsa — o'z hisobiga kiradi.
+    const isPersonal = selectedRole === 'oqituvchi' && !!xodim && !xodim.umumiy;
+    const role = LOGIN_ROLES.find((r) => r.key === selectedRole);
+    const loginEmail = isPersonal ? String(xodim.email || '').trim().toLowerCase() : role.email;
     if (stage === 'input') {
-      if (isPersonal && !loginEmail) { toast('Login (email) kiriting', 'error'); return; }
+      if (isPersonal && !loginEmail) { toast('Bu xodimga login biriktirilmagan', 'error'); return; }
       setBusy('Kirilmoqda...');
       const { error } = await sb.auth.signInWithPassword({ email: loginEmail, password: fd.get('password') });
       if (error) {
-        toast(isPersonal ? "Login yoki parol noto'g'ri" : ("Parol noto'g'ri — " + role.label + " bo'limi uchun parolni tekshiring"), 'error');
+        toast(isPersonal ? "Parol noto'g'ri" : ("Parol noto'g'ri — " + role.label + " bo'limi uchun parolni tekshiring"), 'error');
         unBusy('Kirish'); return;
       }
-      // Shaxsiy login uchun OTP yo'q — to'g'ridan-to'g'ri kiramiz
-      if (isPersonal) { boot(); return; }
+      // Shaxsiy hisob uchun OTP yo'q — to'g'ridan-to'g'ri o'z paneliga
+      if (isPersonal) {
+        // Panel o'zini qayta so'ramasin: kim kirgani allaqachon ma'lum
+        try { localStorage.setItem('finway_teacher', String(xodim.id)); } catch { /* yopiq rejim */ }
+        boot(); return;
+      }
       // Rol hisobi: xodim OTP yoqilganmi?
       let staffOtp = false, rolePhone = '';
       try {
@@ -629,16 +682,24 @@ async function boot() {
   try {
     const [s, emp] = await Promise.all([
       sb.from('settings').select('*').single(),
-      (!acc && email) ? sb.from('employees').select('first_name,last_name,role').eq('email', email).maybeSingle() : Promise.resolve({ data: null }),
+      (!acc && email) ? sb.from('employees').select('id,first_name,last_name,role').eq('email', email).maybeSingle() : Promise.resolve({ data: null }),
     ]);
     if (s?.data?.center_name) centerName = s.data.center_name;
     if (!acc && emp?.data) {
       currentUser.role = emp.data.role === 'oqituvchi' ? 'oqituvchi' : (emp.data.role || 'oqituvchi');
       currentUser.name = `${emp.data.first_name} ${emp.data.last_name || ''}`.trim();
+      currentUser.empId = emp.data.id;
     }
   } catch { /* davom etamiz */ }
 
-  // O'qituvchi — alohida fokuslangan panel (o'zini ro'yxatdan tanlaydi)
+  // Kurator — faqat onlayn kurs: savollar, o'quvchilar natijasi va darslar
+  if (currentUser.role === 'kurator') {
+    const { renderKuratorApp } = await import('./kurator.js');
+    renderKuratorApp(centerName);
+    return;
+  }
+
+  // O'qituvchi — alohida fokuslangan panel
   if (currentUser.role === 'oqituvchi') {
     renderTeacherApp(centerName);
     return;

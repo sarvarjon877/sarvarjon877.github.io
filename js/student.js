@@ -925,6 +925,23 @@ async function libUy(body) {
 // yoziladi — o'quvchi oxirigacha kutmaydi. Tepada taymer, savolni o'tkazib
 // yuborish mumkin. Yakunda hammasi yana bir bor jamlanadi va natija xodimlar
 // guruhiga ketadi. Yechish vaqtida ilovadan chiqib ketilsa — darhol xabar beriladi.
+/**
+ * Vazifa sharti. Qisqa bo'lsa — faqat birinchi savolda.
+ * Uzun bo'lsa (masalan moddalar ro'yxati) — har bir savolda yig'ma blok
+ * bo'lib turadi: o'quvchi ro'yxatni ochib, yopib ishlayveradi.
+ */
+function shartBloki(test, idx) {
+  const matn = String(test?.description || '').trim();
+  if (!matn) return '';
+  if (matn.length <= 160) {
+    return idx === 0 ? `<div class="text-xs text-slate-400 mb-3 leading-relaxed">${esc(matn)}</div>` : '';
+  }
+  return `<details class="mb-3 rounded-xl border border-white/10 bg-white/[0.03]" ${idx === 0 ? 'open' : ''}>
+    <summary class="cursor-pointer select-none px-3.5 py-2.5 text-xs font-bold text-indigo-300">📋 Vazifa sharti va ma'lumotlar</summary>
+    <div class="px-3.5 pb-3 text-[12px] text-slate-300 leading-relaxed whitespace-pre-wrap">${esc(matn)}</div>
+  </details>`;
+}
+
 function runVazifa(test, main, onBack) {
   const savollar = test.questions || [];
   const umumiyVariantlar = test.options || [];
@@ -1050,7 +1067,7 @@ function runVazifa(test, main, onBack) {
         <div class="h-2 rounded-full bg-slate-800 overflow-hidden mb-4">
           <div class="h-full bg-indigo-500 transition-all" style="width:${(idx / savollar.length) * 100}%"></div>
         </div>
-        ${test.description && idx === 0 ? `<div class="text-xs text-slate-400 mb-3 leading-relaxed">${esc(test.description)}</div>` : ''}
+        ${shartBloki(test, idx)}
         <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-5 mb-4 flex items-center" style="min-height:88px">
           <div class="text-slate-100 font-semibold text-[16px] leading-snug">${esc(q.q)}</div>
         </div>

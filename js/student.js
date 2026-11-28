@@ -942,7 +942,15 @@ function shartBloki(test, idx) {
   </details>`;
 }
 
-function runVazifa(test, main, onBack) {
+/**
+ * Vazifani yechish ekrani.
+ *
+ * opts.sinov = true bo'lsa — TEKSHIRUV rejimi (kurator yoki o'qituvchi uchun):
+ * natija bazaga yozilmaydi va Telegram guruhiga hech narsa ketmaydi.
+ * Shunda xodim vazifani o'quvchi ko'zi bilan ko'rib chiqa oladi.
+ */
+export function runVazifa(test, main, onBack, opts = {}) {
+  const sinov = !!opts.sinov;
   const savollar = test.questions || [];
   const umumiyVariantlar = test.options || [];
   const javoblar = new Array(savollar.length).fill(null);
@@ -981,7 +989,7 @@ function runVazifa(test, main, onBack) {
   const kuzat = () => {
     if (tugadi || document.visibilityState !== 'hidden') return;
     chiqishSoni++;
-    if (xabarYuborildi) return;
+    if (sinov || xabarYuborildi) return;
     xabarYuborildi = true;
     sb.functions.invoke('vazifa-natija', {
       body: { type: 'tark-etdi', test_id: test.id, student_id: S.student.id },
@@ -996,9 +1004,12 @@ function runVazifa(test, main, onBack) {
   const chiqish = () => { kuzatuvniTo(); onBack(); };
 
   const suvBelgisi = () => {
-    const ism = [S.student?.first_name, S.student?.last_name].filter(Boolean).join(' ');
+    const ism = sinov
+      ? String(opts.nom || 'Tekshiruv')
+      : [S.student?.first_name, S.student?.last_name].filter(Boolean).join(' ');
+    const qosh = sinov ? 'tekshiruv rejimi' : (S.student?.phone || '');
     return `<div class="pointer-events-none select-none fixed inset-0 flex items-center justify-center" style="z-index:5">
-      <div class="text-[13px] font-semibold" style="color:rgba(255,255,255,.055); transform:rotate(-24deg)">${esc(ism)} · ${esc(S.student?.phone || '')}</div>
+      <div class="text-[13px] font-semibold" style="color:rgba(255,255,255,.055); transform:rotate(-24deg)">${esc(ism)} · ${esc(qosh)}</div>
     </div>`;
   };
 
@@ -1202,8 +1213,11 @@ function runVazifa(test, main, onBack) {
         <button id="vTugat" class="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">Darsga qaytish</button>
       </div>`;
 
-    $('#vQayta', main).onclick = () => runVazifa(test, main, onBack);
+    $('#vQayta', main).onclick = () => runVazifa(test, main, onBack, opts);
     $('#vTugat', main).onclick = onBack;
+
+    // Tekshiruv rejimi: natija na bazaga, na guruhga ketadi
+    if (sinov) return;
 
     try {
       await run(sb.from('test_results').upsert(

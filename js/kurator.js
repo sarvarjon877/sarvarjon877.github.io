@@ -11,6 +11,8 @@ import { sb, run } from './db.js';
 import { $, $$, esc, toast, fmtDate } from './ui.js';
 import { currentUser } from './app.js';
 import { mountChat, closeChat } from './chat.js';
+import { resolveVideoUrl } from './video-store.js';
+import { runVazifa } from './student.js';
 
 const OTISH_FOIZ = 80;
 
@@ -89,11 +91,11 @@ async function malumot() {
 
   const modIds = modullar.map((m) => m.id);
   const darslar = modIds.length
-    ? await oq(sb.from('course_lessons').select('id,title,module_id,sort_order,duration_min,qoshimcha').in('module_id', modIds).order('sort_order'), 'Darslar')
+    ? await oq(sb.from('course_lessons').select('id,title,description,module_id,sort_order,duration_min,qoshimcha,video_provider,video_path,video_url,pdf_url,pdf_name').in('module_id', modIds).order('sort_order'), 'Darslar')
     : [];
   const lesIds = darslar.map((l) => l.id);
   const vazifalar = lesIds.length
-    ? await oq(sb.from('tests').select('id,title,lesson_id,tartib').in('lesson_id', lesIds).eq('active', true).order('tartib'), 'Vazifalar')
+    ? await oq(sb.from('tests').select('*').in('lesson_id', lesIds).eq('active', true).order('tartib'), 'Vazifalar')
     : [];
 
   return { kurslar, stud, xabarlar, modullar, darslar, vazifalar, progress, natijalar, xatolar };
@@ -411,13 +413,81 @@ function darslarBolimi(main) {
           : `<div class="space-y-1.5 mt-2">
             ${ls.map((l) => {
               const vs = vazifalar.filter((t) => t.lesson_id === l.id);
-              return `<div class="flex items-center gap-2 text-sm">
+              return `<button data-dars="${esc(l.id)}" class="w-full flex items-center gap-2 text-sm text-left px-2 py-1.5 -mx-2 rounded-lg hover:bg-slate-50 transition">
                 <span class="shrink-0">${l.qoshimcha ? '➕' : '🎬'}</span>
                 <span class="min-w-0 flex-1 truncate text-slate-700">${esc(l.title)}</span>
                 <span class="text-[11px] text-slate-400 shrink-0">${l.duration_min ? `${l.duration_min} daq` : ''}${vs.length ? ` · ${vs.length} vazifa` : ''}</span>
-              </div>`;
+                <span class="text-slate-400 shrink-0">›</span>
+              </button>`;
             }).join('')}
           </div>`}
       </div>`;
     }).join('');
+
+  $$('[data-dars]', main).forEach((b) => b.onclick = () => {
+    const l = K.data.darslar.find((x) => String(x.id) === b.dataset.dars);
+    if (l) darsOch(l);
+  });
+}
+
+// ============ DARSNI KO'RISH (tekshiruv rejimi) ============
+//
+// Kurator darsni xuddi o'quvchi kabi ochadi: video, material, vazifalar.
+// Farqi bitta — vazifa yechilsa natija saqlanmaydi va guruhga xabar ketmaydi.
+async function darsOch(l) {
+  closeChat();
+  const vs = K.data.vazifalar.filter((t) => t.lesson_id === l.id)
+    .sort((a, b) => (a.tartib || 0) - (b.tartib || 0));
+
+  $('#app').innerHTML = `
+    <div class="min-h-screen bg-slate-950 text-slate-100">
+      <div class="max-w-2xl mx-auto px-4 py-4" id="kDars">
+        <button id="kOrqa" class="text-sm text-slate-400 hover:text-slate-200 mb-3">← Darslar</button>
+        <div class="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 mb-4">
+          <span class="text-base">🔍</span>
+          <div class="text-xs font-semibold text-amber-200">Tekshiruv rejimi — natija saqlanmaydi, guruhga xabar ketmaydi</div>
+        </div>
+        <h1 class="text-lg font-extrabold mb-1">${esc(l.title)}</h1>
+        ${l.description ? `<div class="text-sm text-slate-400 mb-3 whitespace-pre-wrap leading-relaxed">${esc(l.description)}</div>` : ''}
+        <div id="kVideo" class="mb-3"></div>
+        ${l.pdf_url ? `<a href="${esc(l.pdf_url)}" target="_blank" rel="noopener"
+          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-sm font-semibold mb-3">📄 ${esc(l.pdf_name || 'Material')}</a>` : ''}
+        ${vs.length ? `<div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <div class="text-xs font-bold text-slate-400 mb-2">Vazifalar</div>
+          <div class="space-y-1.5">
+            ${vs.map((t, i) => `<button data-v="${esc(t.id)}" class="w-full text-left px-3.5 py-3 rounded-xl border border-indigo-500/40 bg-indigo-600/10 hover:bg-indigo-600/20 transition flex items-center gap-3">
+              <span class="w-8 h-8 shrink-0 rounded-lg bg-indigo-500/25 text-indigo-200 flex items-center justify-center text-sm font-bold">${i + 1}</span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold truncate">${esc(t.title)}</span>
+                <span class="block text-[11px] text-indigo-300/80">${(t.questions || []).length} ta savol${t.time_limit ? ` · ${t.time_limit} daqiqa` : ''}</span>
+              </span>
+              <span class="text-slate-500">›</span>
+            </button>`).join('')}
+          </div>
+        </div>` : '<div class="text-sm text-slate-500">Bu darsda vazifa yo\'q</div>'}
+      </div>
+    </div>`;
+
+  $('#kOrqa').onclick = () => chiz();
+  $$('#kDars [data-v]').forEach((b) => b.onclick = () => {
+    const t = vs.find((x) => String(x.id) === b.dataset.v);
+    if (t) runVazifa(t, $('#kDars'), () => darsOch(l), { sinov: true, nom: currentUser.name || 'Kurator' });
+  });
+
+  // Video — R2 uchun vaqtincha havola so'raladi
+  const vd = $('#kVideo');
+  if (!l.video_path && !l.video_url) {
+    vd.innerHTML = '<div class="text-sm text-slate-500 mb-2">Bu darsda video yo\'q</div>';
+    return;
+  }
+  vd.innerHTML = '<div class="text-sm text-slate-500">Video yuklanmoqda...</div>';
+  try {
+    const src = await resolveVideoUrl(l);
+    if (!src) throw new Error('Havola olinmadi');
+    vd.innerHTML = `<div class="relative w-full rounded-xl overflow-hidden bg-black" style="aspect-ratio:16/9">
+      <video class="absolute inset-0 w-full h-full" controls playsinline preload="metadata" src="${esc(src)}"></video>
+    </div>`;
+  } catch (e) {
+    vd.innerHTML = `<div class="text-sm text-rose-300">Video ochilmadi: ${esc(String(e?.message || e).slice(0, 100))}</div>`;
+  }
 }

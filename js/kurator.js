@@ -125,7 +125,7 @@ function chiz() {
   $('#app').innerHTML = `
     <div class="min-h-screen bg-slate-100 flex flex-col">
       <header class="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div class="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div class="mx-auto px-4 py-3 flex items-center gap-3" style="max-width:48rem">
           <div class="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center text-lg shrink-0">👩‍🏫</div>
           <div class="min-w-0 flex-1">
             <div class="font-extrabold text-slate-800 truncate">${esc(currentUser.name || 'Kurator')}</div>
@@ -135,17 +135,17 @@ function chiz() {
         </div>
       </header>
 
-      ${(K.data?.xatolar || []).length ? `<div class="max-w-3xl w-full mx-auto px-4 pt-3">
+      ${(K.data?.xatolar || []).length ? `<div class="w-full mx-auto px-4 pt-3" style="max-width:48rem">
         <div class="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
           <div class="text-xs font-bold text-amber-800">Ba'zi ma'lumotlar yuklanmadi</div>
           <div class="text-[11px] text-amber-700 mt-0.5">${esc(K.data.xatolar.join(' · '))}</div>
         </div>
       </div>` : ''}
 
-      <main id="kMain" class="flex-1 max-w-3xl w-full mx-auto px-4 py-4 pb-24"></main>
+      <main id="kMain" class="flex-1 w-full mx-auto px-4 py-4 pb-24" style="max-width:48rem"></main>
 
       <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-20">
-        <div class="max-w-3xl mx-auto grid grid-cols-3">
+        <div class="mx-auto grid grid-cols-3" style="max-width:48rem">
           ${TABS.map((t) => `
             <button data-tab="${t.id}" class="py-2.5 flex flex-col items-center gap-0.5 transition">
               <span class="text-lg">${t.icon}</span>
@@ -441,7 +441,7 @@ async function darsOch(l) {
 
   $('#app').innerHTML = `
     <div class="min-h-screen bg-slate-950 text-slate-100">
-      <div class="max-w-2xl mx-auto px-4 py-4" id="kDars">
+      <div class="mx-auto px-4 py-4" style="max-width:42rem" id="kDars">
         <button id="kOrqa" class="text-sm text-slate-400 hover:text-slate-200 mb-3">← Darslar</button>
         <div class="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 mb-4">
           <span class="text-base">🔍</span>

@@ -341,7 +341,7 @@ function renderLogin() {
       // Kim kirayotganini tanlaydi — keyin o'z paroli so'raladi
       area.innerHTML = `
         <div class="text-xs font-semibold text-slate-500 mb-2">Kim kiryapti?</div>
-        <div class="space-y-1.5 max-h-72 overflow-y-auto">
+        <div class="space-y-1.5 overflow-y-auto" style="max-height:18rem">
           ${xodimlar.map((x) => `
             <button type="button" data-x="${esc(x.id)}" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border-2 border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition text-left">
               <span class="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center text-sm font-bold shrink-0">${esc((x.ism || '?').slice(0, 1).toUpperCase())}</span>

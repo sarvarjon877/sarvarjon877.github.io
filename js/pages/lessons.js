@@ -6,6 +6,7 @@ import { $, $$, esc, toast, modal, confirmDialog, emptyState, btnCls, fmtDate } 
 import { currentUser } from '../app.js';
 import { uploadVideo, deleteVideo, resolveVideoUrl, mb, MAX_VIDEO_MB, TAVSIYA_MB } from '../video-store.js';
 import { openPdfViewer } from '../pdf-viewer.js';
+import { runVazifa } from '../student.js';
 
 // Darsda video bormi (R2 fayli yoki tashqi havola)
 const hasVideo = (l) => !!(l?.video_url || l?.video_path);
@@ -265,10 +266,42 @@ export function openPdf(url, name) {
   return openPdfViewer(url, name);
 }
 
+/**
+ * Vazifani TEKSHIRUV rejimida ochadi: xodim uni o'quvchi ko'zi bilan yechib
+ * ko'radi, lekin natija bazaga yozilmaydi va guruhga xabar ketmaydi.
+ *
+ * Vazifa ekrani qorong'i, sahifa esa oq — shuning uchun uni butun ekranni
+ * qoplaydigan alohida qatlamda ochamiz.
+ */
+function sinovOch(test) {
+  const qatlam = document.createElement('div');
+  // z-index inline: tayyor CSS da bu daraja uchun sinf yo'q, modal esa z-50 da
+  qatlam.className = 'fixed inset-0 bg-slate-950 overflow-y-auto';
+  qatlam.style.zIndex = '60';
+  qatlam.innerHTML = `
+    <div class="max-w-2xl mx-auto px-4 py-4">
+      <div class="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 mb-4">
+        <span class="text-base">🔍</span>
+        <div class="text-xs font-semibold text-amber-200 flex-1">Tekshiruv rejimi — natija saqlanmaydi, guruhga xabar ketmaydi</div>
+        <button data-yop class="text-xs font-bold text-amber-200/80 hover:text-amber-100 shrink-0">✕ Yopish</button>
+      </div>
+      <div id="sinovBox"></div>
+    </div>`;
+  document.body.appendChild(qatlam);
+  const yop = () => qatlam.remove();
+  $('[data-yop]', qatlam).onclick = yop;
+  runVazifa(test, $('#sinovBox', qatlam), yop, { sinov: true, nom: currentUser.name || 'Xodim' });
+}
+
 // --- Darsni ko'rish (preview) modali ---
 async function viewLesson(lesson) {
   let src = null, xato = null;
   try { src = await resolveVideoUrl(lesson); } catch (e) { xato = e.message || 'ochilmadi'; }
+  let vazifalar = [];
+  try {
+    vazifalar = await run(sb.from('tests').select('*').eq('lesson_id', lesson.id).eq('active', true).order('tartib'));
+  } catch { /* vazifa o'qilmasa ham dars ko'rinaveradi */ }
+
   const m = modal(lesson.title, `
     ${src ? videoBlock(src, false, lesson)
       : (xato ? `<div class="text-sm text-rose-500 py-3">Video ochilmadi: ${esc(xato)}</div>`
@@ -276,9 +309,27 @@ async function viewLesson(lesson) {
     ${lesson.duration_min ? `<div class="mt-3 text-xs text-slate-500">⏱ ${esc(fmtDur(lesson.duration_min))}</div>` : ''}
     ${lesson.description ? `<div class="mt-3 text-sm text-slate-600 whitespace-pre-wrap">${esc(lesson.description)}</div>` : ''}
     ${lesson.pdf_url ? `<button data-pdf class="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-sm font-semibold text-slate-700">📄 ${esc(lesson.pdf_name || 'PDF / prezentatsiya')}</button>` : ''}
+    ${vazifalar.length ? `<div class="mt-5 pt-4 border-t border-slate-100">
+      <div class="text-xs font-bold text-slate-500 mb-2">Vazifalar — sinab ko'rish</div>
+      <div class="space-y-1.5">
+        ${vazifalar.map((t, i) => `<button data-sinov="${esc(t.id)}" class="w-full text-left px-3.5 py-3 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 transition flex items-center gap-3">
+          <span class="w-8 h-8 shrink-0 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-sm font-bold">${i + 1}</span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-sm font-semibold text-slate-700 truncate">${esc(t.title)}</span>
+            <span class="block text-[11px] text-slate-400">${(t.questions || []).length} ta savol${t.time_limit ? ` · ${t.time_limit} daqiqa` : ''}</span>
+          </span>
+          <span class="text-slate-400">›</span>
+        </button>`).join('')}
+      </div>
+      <div class="mt-2 text-[11px] text-slate-400">Natija saqlanmaydi — bu faqat tekshirish uchun.</div>
+    </div>` : ''}
   `, { wide: true });
   const pb = $('[data-pdf]', m.body);
   if (pb) pb.onclick = () => openPdf(lesson.pdf_url, lesson.pdf_name);
+  $$('[data-sinov]', m.body).forEach((b) => b.onclick = () => {
+    const t = vazifalar.find((x) => String(x.id) === b.dataset.sinov);
+    if (t) sinovOch(t);
+  });
 }
 
 export async function render(container) {

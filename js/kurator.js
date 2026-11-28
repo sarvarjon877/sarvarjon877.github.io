@@ -42,12 +42,24 @@ function vaqt(t) {
 }
 
 // --- Ma'lumotlarni bir marta yig'amiz ---
+//
+// Har bir so'rov alohida himoyalangan: bittasi ishlamay qolsa ham panel
+// ochiladi, faqat o'sha bo'lim bo'sh turadi va tepada ogohlantirish chiqadi.
+// Aks holda bitta xato butun ekranni "Ma'lumot yuklanmadi" ga aylantirardi.
 async function malumot() {
+  const xatolar = [];
+  const oq = async (q, nom) => {
+    try { return (await run(q)) || []; } catch (e) {
+      xatolar.push(`${nom}: ${String(e?.message || e).slice(0, 120)}`);
+      return [];
+    }
+  };
+
   const [kurslar, oquvchilar, xabarlar] = await Promise.all([
-    run(sb.from('courses').select('id,name').order('name')),
-    run(sb.from('student_courses').select('student_id, course_id, students(id,first_name,last_name,phone)')),
-    run(sb.from('messages').select('student_id, body, created_at, sender_role')
-      .eq('channel', 'private').is('group_id', null).order('created_at', { ascending: false })),
+    oq(sb.from('courses').select('id,name').order('name'), 'Kurslar'),
+    oq(sb.from('student_courses').select('student_id, course_id, students(id,first_name,last_name,phone)'), "O'quvchilar"),
+    oq(sb.from('messages').select('student_id, body, created_at, sender_role')
+      .eq('channel', 'private').is('group_id', null).order('created_at', { ascending: false }), 'Savollar'),
   ]);
 
   const stud = [];
@@ -65,26 +77,26 @@ async function malumot() {
 
   const [modullar, progress, natijalar] = await Promise.all([
     kursIds.length
-      ? run(sb.from('course_modules').select('id,title,sort_order,opens_at,locked,course_id').in('course_id', kursIds).order('sort_order'))
+      ? oq(sb.from('course_modules').select('id,title,sort_order,opens_at,locked,course_id').in('course_id', kursIds).order('sort_order'), 'Modullar')
       : Promise.resolve([]),
     sIds.length
-      ? run(sb.from('lesson_progress').select('student_id, lesson_id, completed, updated_at').in('student_id', sIds))
+      ? oq(sb.from('lesson_progress').select('student_id, lesson_id, completed, updated_at').in('student_id', sIds), 'Darslar progressi')
       : Promise.resolve([]),
     sIds.length
-      ? run(sb.from('test_results').select('student_id, test_id, correct, total, created_at').in('student_id', sIds))
+      ? oq(sb.from('test_results').select('student_id, test_id, correct, total, taken_at, finished_at').in('student_id', sIds), 'Vazifa natijalari')
       : Promise.resolve([]),
   ]);
 
-  const modIds = (modullar || []).map((m) => m.id);
+  const modIds = modullar.map((m) => m.id);
   const darslar = modIds.length
-    ? await run(sb.from('course_lessons').select('id,title,module_id,sort_order,duration_min,qoshimcha').in('module_id', modIds).order('sort_order'))
+    ? await oq(sb.from('course_lessons').select('id,title,module_id,sort_order,duration_min,qoshimcha').in('module_id', modIds).order('sort_order'), 'Darslar')
     : [];
   const lesIds = darslar.map((l) => l.id);
   const vazifalar = lesIds.length
-    ? await run(sb.from('tests').select('id,title,lesson_id,tartib').in('lesson_id', lesIds).eq('active', true).order('tartib'))
+    ? await oq(sb.from('tests').select('id,title,lesson_id,tartib').in('lesson_id', lesIds).eq('active', true).order('tartib'), 'Vazifalar')
     : [];
 
-  return { kurslar, stud, xabarlar: xabarlar || [], modullar: modullar || [], darslar, vazifalar, progress: progress || [], natijalar: natijalar || [] };
+  return { kurslar, stud, xabarlar, modullar, darslar, vazifalar, progress, natijalar, xatolar };
 }
 
 export async function renderKuratorApp(centerName) {
@@ -95,9 +107,11 @@ export async function renderKuratorApp(centerName) {
     </div>`;
   try {
     K.data = await malumot();
-  } catch {
+  } catch (e) {
+    // Bu yerga faqat kutilmagan nosozlikda tushamiz (masalan tarmoq uzilsa)
     $('#app').innerHTML = `<div class="min-h-screen bg-slate-100 flex items-center justify-center p-6 text-center">
       <div><div class="text-3xl mb-2">⚠️</div><div class="text-slate-600 font-semibold">Ma'lumot yuklanmadi</div>
+      <div class="text-xs text-slate-400 mt-2 max-w-xs mx-auto">${esc(String(e?.message || e).slice(0, 160))}</div>
       <button id="qayta" class="mt-4 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold">Qayta urinish</button></div></div>`;
     $('#qayta').onclick = () => renderKuratorApp(centerName);
     return;
@@ -118,6 +132,13 @@ function chiz() {
           <button id="kChiq" class="text-xs text-slate-400 hover:text-rose-500 shrink-0">Chiqish</button>
         </div>
       </header>
+
+      ${(K.data?.xatolar || []).length ? `<div class="max-w-3xl w-full mx-auto px-4 pt-3">
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5">
+          <div class="text-xs font-bold text-amber-800">Ba'zi ma'lumotlar yuklanmadi</div>
+          <div class="text-[11px] text-amber-700 mt-0.5">${esc(K.data.xatolar.join(' · '))}</div>
+        </div>
+      </div>` : ''}
 
       <main id="kMain" class="flex-1 max-w-3xl w-full mx-auto px-4 py-4 pb-24"></main>
 
@@ -245,7 +266,7 @@ function oquvchilarBolimi(main) {
   const otgan = (sid) => vazifalar.filter((t) => foiz(natijaOf(sid, t.id)) >= OTISH_FOIZ).length;
   const oxirgiFaollik = (sid) => {
     const p = progress.filter((x) => x.student_id === sid).map((x) => x.updated_at);
-    const n = natijalar.filter((x) => x.student_id === sid).map((x) => x.created_at);
+    const n = natijalar.filter((x) => x.student_id === sid).map((x) => x.finished_at || x.taken_at);
     const hammasi = [...p, ...n].filter(Boolean).sort();
     return hammasi.length ? hammasi[hammasi.length - 1] : null;
   };
